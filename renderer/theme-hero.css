@@ -22,22 +22,26 @@
 @media screen {
 
     :root {
-        /* structural */
-        --hero-bg-1: #0d0920;
-        --hero-bg-2: #171030;
-        --hero-panel: #20183f;
-        --hero-panel-2: #170f2c;
-        --hero-panel-3: #140c26;
+        /* structural — "ทอง-อำพัน" (Amber), the default theme. Warm neutral
+           dark brown/black, no purple/blue tint anywhere (including the
+           dim/faint text shades, which used to lean lavender). */
+        --hero-bg-1: #120d09;
+        --hero-bg-2: #1c140c;
+        --hero-panel: #241a10;
+        --hero-panel-2: #1a130b;
+        --hero-panel-3: #140e08;
         --hero-border-lt: #ffe27a;
         --hero-border-dk: #6b4a12;
         --hero-gold: #f6c453;
         --hero-gold-bright: #ffe27a;
         --hero-text: #f1e9d2;
-        --hero-text-dim: #b9aed6;
-        --hero-text-faint: #8478a8;
+        --hero-text-dim: #d3c3a0;
+        --hero-text-faint: #a08f6c;
         --hero-active-1: #b45309;
         --hero-active-2: #f59e0b;
         --hero-glow: rgba(246, 196, 83, 0.35);
+        --hero-radial-1: rgba(217, 154, 27, 0.22);
+        --hero-radial-2: rgba(246, 196, 83, 0.10);
 
         /* brighten the original semantic accents so they read on a dark panel */
         --primary: #60a5fa;
@@ -57,6 +61,74 @@
         --cyan-recon-bg: rgba(34, 211, 238, 0.14);
     }
 
+    /* ===== "มรกตราตรี" (Emerald Night) ===== */
+    :root[data-theme="emerald"] {
+        --hero-bg-1: #071410; --hero-bg-2: #0e211a;
+        --hero-panel: #10241c; --hero-panel-2: #0b1a14; --hero-panel-3: #08140f;
+        --hero-border-lt: #7ce3b8; --hero-border-dk: #1f5c46;
+        --hero-gold: #34d399; --hero-gold-bright: #6ee7b7;
+        --hero-text: #eafff4; --hero-text-dim: #b7e6cf; --hero-text-faint: #7fb79e;
+        --hero-active-1: #0f766e; --hero-active-2: #14b8a6;
+        --hero-glow: rgba(52, 211, 153, 0.35);
+        --hero-radial-1: rgba(20, 184, 166, 0.22); --hero-radial-2: rgba(110, 231, 183, 0.10);
+        --primary: #38bdf8; --success: #34d399; --info: #22d3ee; --danger: #f87171; --warning: #fbbf24; --purple: #14b8a6;
+        --green60: #4ade80; --green60-bg: rgba(74,222,128,0.14); --green60-light: rgba(74,222,128,0.4);
+        --red60: #f87171; --red60-bg: rgba(248,113,113,0.14);
+        --amber60: #fbbf24; --amber60-bg: rgba(251,191,36,0.14);
+        --cyan-recon: #22d3ee; --cyan-recon-bg: rgba(34,211,238,0.14);
+    }
+
+    /* ===== "ราชานาวี" (Royal Navy Blue) ===== */
+    :root[data-theme="navy"] {
+        --hero-bg-1: #060b18; --hero-bg-2: #0c1830;
+        --hero-panel: #101f3d; --hero-panel-2: #0a1628; --hero-panel-3: #081120;
+        --hero-border-lt: #8ec5ff; --hero-border-dk: #1e3a6b;
+        --hero-gold: #60a5fa; --hero-gold-bright: #93c5fd;
+        --hero-text: #eaf2ff; --hero-text-dim: #b9cfee; --hero-text-faint: #7f97c2;
+        --hero-active-1: #1d4ed8; --hero-active-2: #3b82f6;
+        --hero-glow: rgba(59, 130, 246, 0.35);
+        --hero-radial-1: rgba(37, 99, 235, 0.22); --hero-radial-2: rgba(147, 197, 253, 0.10);
+        --primary: #60a5fa; --success: #34d399; --info: #38bdf8; --danger: #f87171; --warning: #fbbf24; --purple: #3b82f6;
+        --green60: #4ade80; --green60-bg: rgba(74,222,128,0.14); --green60-light: rgba(74,222,128,0.4);
+        --red60: #f87171; --red60-bg: rgba(248,113,113,0.14);
+        --amber60: #fbbf24; --amber60-bg: rgba(251,191,36,0.14);
+        --cyan-recon: #22d3ee; --cyan-recon-bg: rgba(34,211,238,0.14);
+    }
+
+    /* ===== "เพลิงมังกร" (Dragon Ember) ===== */
+    :root[data-theme="ember"] {
+        --hero-bg-1: #170805; --hero-bg-2: #24100a;
+        --hero-panel: #2a130c; --hero-panel-2: #1c0d08; --hero-panel-3: #150a06;
+        --hero-border-lt: #ffb37a; --hero-border-dk: #7c2d12;
+        --hero-gold: #fb923c; --hero-gold-bright: #fdba74;
+        --hero-text: #fff1e8; --hero-text-dim: #f0c8ab; --hero-text-faint: #bd8a68;
+        --hero-active-1: #b91c1c; --hero-active-2: #ef4444;
+        --hero-glow: rgba(251, 146, 60, 0.35);
+        --hero-radial-1: rgba(194, 65, 12, 0.22); --hero-radial-2: rgba(253, 186, 116, 0.10);
+        --primary: #fb923c; --success: #34d399; --info: #38bdf8; --danger: #ef4444; --warning: #fbbf24; --purple: #ef4444;
+        --green60: #4ade80; --green60-bg: rgba(74,222,128,0.14); --green60-light: rgba(74,222,128,0.4);
+        --red60: #f87171; --red60-bg: rgba(248,113,113,0.14);
+        --amber60: #fbbf24; --amber60-bg: rgba(251,191,36,0.14);
+        --cyan-recon: #22d3ee; --cyan-recon-bg: rgba(34,211,238,0.14);
+    }
+
+    /* ===== "เทาเงาราตรี" (Neutral Slate) — calmest, least saturated ===== */
+    :root[data-theme="slate"] {
+        --hero-bg-1: #0b0d10; --hero-bg-2: #14171b;
+        --hero-panel: #171a1f; --hero-panel-2: #101215; --hero-panel-3: #0c0e10;
+        --hero-border-lt: #c9ced6; --hero-border-dk: #454b54;
+        --hero-gold: #cbd5e1; --hero-gold-bright: #e2e8f0;
+        --hero-text: #f1f5f9; --hero-text-dim: #cbd5e1; --hero-text-faint: #8792a2;
+        --hero-active-1: #475569; --hero-active-2: #64748b;
+        --hero-glow: rgba(148, 163, 184, 0.35);
+        --hero-radial-1: rgba(100, 116, 139, 0.20); --hero-radial-2: rgba(226, 232, 240, 0.08);
+        --primary: #60a5fa; --success: #34d399; --info: #38bdf8; --danger: #f87171; --warning: #fbbf24; --purple: #64748b;
+        --green60: #4ade80; --green60-bg: rgba(74,222,128,0.14); --green60-light: rgba(74,222,128,0.4);
+        --red60: #f87171; --red60-bg: rgba(248,113,113,0.14);
+        --amber60: #fbbf24; --amber60-bg: rgba(251,191,36,0.14);
+        --cyan-recon: #22d3ee; --cyan-recon-bg: rgba(34,211,238,0.14);
+    }
+
     html, body { height: 100%; }
 
     body {
@@ -66,8 +138,8 @@
         overflow-y: auto;
         overflow-x: hidden;
         background:
-            radial-gradient(circle at 15% 0%, rgba(217, 154, 27, 0.25), transparent 45%),
-            radial-gradient(circle at 100% 100%, rgba(246, 196, 83, 0.10), transparent 40%),
+            radial-gradient(circle at 15% 0%, var(--hero-radial-1), transparent 45%),
+            radial-gradient(circle at 100% 100%, var(--hero-radial-2), transparent 40%),
             linear-gradient(180deg, var(--hero-bg-1), var(--hero-bg-2));
         color: var(--hero-text);
         font-family: 'Sarabun', 'Noto Sans Thai', Tahoma, sans-serif;
@@ -556,6 +628,50 @@
         0%   { color: #fff; text-shadow: 0 0 16px rgba(255, 255, 255, 0.95); }
         100% { color: var(--hero-gold-bright); text-shadow: 0 0 8px rgba(246, 196, 83, 0.45); }
     }
+
+    /* ---------------------------------------------------------------
+       Theme picker modal
+       --------------------------------------------------------------- */
+    .theme-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+    }
+    .theme-swatch {
+        cursor: pointer;
+        text-align: center;
+        padding: 6px;
+        border-radius: 8px;
+        border: 2px solid transparent;
+    }
+    .theme-swatch:hover { background: rgba(255, 255, 255, 0.06); }
+    .theme-swatch.active { border-color: var(--hero-gold-bright); background: rgba(255, 255, 255, 0.08); }
+    .theme-swatch-preview {
+        position: relative;
+        height: 54px;
+        border-radius: 6px;
+        border-style: solid;
+        border-width: 2px;
+        border-color: var(--hero-border-lt) var(--hero-border-dk) var(--hero-border-dk) var(--hero-border-lt);
+        margin-bottom: 6px;
+    }
+    .theme-swatch-check {
+        position: absolute;
+        top: 3px;
+        right: 4px;
+        font-size: 12px;
+        color: #fff;
+        text-shadow: 0 0 4px rgba(0,0,0,0.8);
+        opacity: 0;
+    }
+    .theme-swatch.active .theme-swatch-check { opacity: 1; }
+    .theme-swatch-label { font-size: 11px; color: var(--hero-text-dim); }
+
+    .theme-preview-amber { background: linear-gradient(135deg, #241a10, #120d09 60%, #f59e0b); }
+    .theme-preview-emerald { background: linear-gradient(135deg, #10241c, #071410 60%, #14b8a6); }
+    .theme-preview-navy { background: linear-gradient(135deg, #101f3d, #060b18 60%, #3b82f6); }
+    .theme-preview-ember { background: linear-gradient(135deg, #2a130c, #170805 60%, #ef4444); }
+    .theme-preview-slate { background: linear-gradient(135deg, #171a1f, #0b0d10 60%, #64748b); }
 
     /* respect users who don't want motion */
     @media (prefers-reduced-motion: reduce) {

@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>POS Hero</title>
+    <script>
+        // Apply the saved theme before any CSS paints, so there's no flash
+        // of the default amber palette on startup.
+        (function () {
+            try {
+                var saved = localStorage.getItem('heroTheme');
+                if (saved) document.documentElement.setAttribute('data-theme', saved);
+            } catch (e) {}
+        })();
+    </script>
     <link rel="stylesheet" href="base.css">
     <link rel="stylesheet" href="theme-hero.css">
 </head>
@@ -30,6 +40,7 @@
             <span class="hero-subtitle">TASKBAR RECON WIDGET</span>
         </div>
         <div class="hero-titlebar-btns">
+            <button class="hero-tbtn" id="btnTheme" title="เปลี่ยนธีมสี" onclick="openThemeModal()">🎨</button>
             <button class="hero-tbtn" id="btnPin" title="ปักหมุดลอยบนสุด" onclick="window.heroWindow && window.heroWindow.togglePin()">📌</button>
             <button class="hero-tbtn" id="btnDock" title="กลับไปมุมจอ" onclick="window.heroWindow && window.heroWindow.dockToCorner()">🧲</button>
             <button class="hero-tbtn" id="btnMin" title="ย่อเป็นวิดเจ็ตจิ๋ว" onclick="window.heroWindow && window.heroWindow.enterMini()">▁</button>
@@ -247,6 +258,35 @@
     <!-- MODAL คู่มือการใช้งาน -->
     <div id="manualModal" class="modal-overlay">
         <div class="modal-content" style="max-width: 500px;"><div class="modal-header"><h3 style="color: var(--primary);">📖 คู่มือการใช้งานระบบ</h3><button class="close-btn" onclick="closeManualModal()">×</button></div><div class="manual-body"><p style="text-align:center; color:#666;">(ระบบทำงานปกติ)</p></div></div>
+    </div>
+
+    <!-- 🎨 MODAL เลือกธีมสี -->
+    <div id="themeModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header"><h3 style="color: var(--hero-gold-bright);">🎨 เลือกธีมสี</h3><button class="close-btn" onclick="closeThemeModal()">×</button></div>
+            <div class="theme-grid" id="themeGrid">
+                <div class="theme-swatch" data-theme="amber" onclick="selectTheme('amber')">
+                    <div class="theme-swatch-preview theme-preview-amber"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">ทอง-อำพัน</div>
+                </div>
+                <div class="theme-swatch" data-theme="emerald" onclick="selectTheme('emerald')">
+                    <div class="theme-swatch-preview theme-preview-emerald"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">มรกตราตรี</div>
+                </div>
+                <div class="theme-swatch" data-theme="navy" onclick="selectTheme('navy')">
+                    <div class="theme-swatch-preview theme-preview-navy"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">ราชานาวี</div>
+                </div>
+                <div class="theme-swatch" data-theme="ember" onclick="selectTheme('ember')">
+                    <div class="theme-swatch-preview theme-preview-ember"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">เพลิงมังกร</div>
+                </div>
+                <div class="theme-swatch" data-theme="slate" onclick="selectTheme('slate')">
+                    <div class="theme-swatch-preview theme-preview-slate"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">เทาเงาราตรี</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- ✨ MODAL คำนวณ 60:40 -->

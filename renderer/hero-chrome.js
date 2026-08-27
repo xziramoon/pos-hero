@@ -55,4 +55,40 @@
         restartAnim(document.getElementById('miniSumNet'), 'flash');
         flashLatestRow();
     };
+
+    // ---------------------------------------------------------------
+    // Theme picker — 5 palettes, persisted in localStorage, applied via
+    // a data-theme attribute on <html> (see the head script in
+    // index.html that applies it before first paint, and the
+    // :root[data-theme="..."] blocks in theme-hero.css).
+    // ---------------------------------------------------------------
+    var DEFAULT_THEME = 'amber';
+
+    function currentTheme() {
+        return document.documentElement.getAttribute('data-theme') || DEFAULT_THEME;
+    }
+
+    function markActiveSwatch() {
+        var active = currentTheme();
+        document.querySelectorAll('.theme-swatch').forEach(function (el) {
+            el.classList.toggle('active', el.getAttribute('data-theme') === active);
+        });
+    }
+
+    window.openThemeModal = function () {
+        markActiveSwatch();
+        document.getElementById('themeModal').style.display = 'flex';
+    };
+    window.closeThemeModal = function () {
+        document.getElementById('themeModal').style.display = 'none';
+    };
+    window.selectTheme = function (name) {
+        if (name === DEFAULT_THEME) {
+            document.documentElement.removeAttribute('data-theme');
+        } else {
+            document.documentElement.setAttribute('data-theme', name);
+        }
+        try { localStorage.setItem('heroTheme', name); } catch (e) {}
+        markActiveSwatch();
+    };
 })();
