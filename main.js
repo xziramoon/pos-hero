@@ -220,10 +220,21 @@ app.on('window-all-closed', () => {
 // silently, with no dialog in the way, is what actually respects the
 // CSS-declared 80mm page size (and is nicer for a cashier anyway — no
 // dialog to click through on every receipt).
-ipcMain.handle('print:silent', () => {
+ipcMain.handle('print:silent', (_event, heightMicrons) => {
   return new Promise((resolve) => {
     if (!mainWindow) { resolve({ success: false, reason: 'no window' }); return; }
-    mainWindow.webContents.print({ silent: true, printBackground: true }, (success, reason) => {
+    // Electron's system-print path does NOT pick this up from the page's
+    // CSS @page rule the way printToPDF's preferCSSPageSize does — it has
+    // to be requested explicitly here, in microns. The renderer measures
+    // the actual print content and sends its real height so the job is
+    // sized to the content, not to the printer driver's nominal "up to
+    // 3276mm" continuous-roll ceiling.
+    const height = Number(heightMicrons) > 0 ? Math.min(Number(heightMicrons), 3276000) : 3276000;
+    mainWindow.webContents.print({
+      silent: true,
+      printBackground: true,
+      pageSize: { width: 80000, height }
+    }, (success, reason) => {
       resolve({ success, reason });
     });
   });

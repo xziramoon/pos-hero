@@ -458,7 +458,7 @@
             document.getElementById('slipRcBank2').innerText = (parseFloat(document.getElementById('reconBank2').value) || 0).toLocaleString('en-US');
             document.getElementById('slipRcPaotang').innerText = (parseFloat(document.getElementById('reconPaotang').value) || 0).toLocaleString('en-US');
             document.getElementById('slipRcBankTotal').innerText = document.getElementById('reconBankTotal').innerText;
-            document.getElementById('slipRcDiff').innerHTML = document.getElementById('reconDiffBox').innerHTML;
+            document.getElementById('slipRcDiff').innerText = document.getElementById('reconDiffBox').innerText.replace(/[✅🟡🔴]/g, '').trim();
             document.body.classList.add('printing-recon');
             closeReconModal();
             heroPrint();

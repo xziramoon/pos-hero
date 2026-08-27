@@ -13,5 +13,5 @@ contextBridge.exposeInMainWorld('heroWindow', {
   enterMini: () => ipcRenderer.send('window:enter-mini'),
   exitMini: () => ipcRenderer.send('window:exit-mini'),
   onModeChanged: (callback) => ipcRenderer.on('mode-changed', (_event, mode) => callback(mode)),
-  silentPrint: () => ipcRenderer.invoke('print:silent')
+  silentPrint: (heightMicrons) => ipcRenderer.invoke('print:silent', heightMicrons)
 });

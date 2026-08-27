@@ -248,20 +248,30 @@
                "auto" height is what makes Chromium print a short receipt
                instead of assuming an A4/Letter-tall page and having the
                printer driver dump that whole imaginary page onto the roll. */
-            @page { size: 80mm auto; margin: 3mm 2mm; }
+            /* Margins: the EPSON TM-T82III's real printable area on an 80mm
+               roll starts ~3.75mm in from the left edge (confirmed from its
+               driver capabilities) — a 2mm margin sat inside that dead zone
+               and got clipped. 4mm clears it with a little room to spare. */
+            @page { size: 80mm auto; margin: 3mm 4mm; }
+            /* grayscale(1) is a defensive net so nothing (a stray color, a
+               partial-opacity fill) can reach the printer as anything but
+               true black/white/gray — thermal drivers dither non-pure
+               colors into a fuzzy speckled pattern instead of solid ink. */
             * { color: #000000 !important; border-color: #000000 !important; box-shadow: none !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-            html, body { width: 80mm; background: white; margin: 0; padding: 0; height: auto; font-size: 11px; }
+            html { filter: grayscale(1) !important; }
+            /* NOT a fixed width: @page's margin already defines the content
+               box as (page width − margins); hardcoding 80mm here on top of
+               that margin is what pushed content past the printable edge. */
+            html, body { background: white; margin: 0; padding: 0; height: auto; }
             .no-print, .floating-controls, .modal-overlay, .filter-container, .undo-toast { display: none !important; }
 
             body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .paper { width: 100%; max-width: none !important; padding: 0 !important; box-shadow: none !important; border: none !important; margin: 0 !important; height: auto !important; overflow: visible !important; }
             body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .input-card { display: none !important; }
             body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .table-wrapper { height: auto !important; max-height: none !important; overflow: visible !important; border: none !important; margin-bottom: 6px; }
-            body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) table { page-break-inside: auto; font-size: 9px; table-layout: fixed; width: 100%; }
+            body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) table { page-break-inside: auto; table-layout: fixed; width: 100%; }
             body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) tr { page-break-inside: avoid; page-break-after: auto; }
             body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) td,
-            body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) th { padding: 2px; border-bottom: 1px dotted #ccc !important; overflow-wrap: break-word; }
-            body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .footer-stats { font-size: 10px; padding: 6px !important; }
-            body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .sum-row.highlight { font-size: 13px !important; }
+            body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) th { border-bottom: 1px dotted #ccc !important; overflow-wrap: break-word; }
 
             body.print-summary-only .paper { display: none !important; }
             body.print-summary-only #printSummaryArea { display: block !important; width: 100%; padding: 0; font-family: 'Sarabun', sans-serif; pointer-events: auto; }
@@ -271,20 +281,38 @@
             body.printing-drawer #printDrawerArea { display: block !important; width: 100%; padding: 0; font-family: 'Sarabun', sans-serif; pointer-events: auto; }
             body.printing-recon #printReconArea { display: block !important; width: 100%; padding: 0; font-family: 'Sarabun', sans-serif; pointer-events: auto; }
 
-            .slip-title { font-size: 13px; font-weight: bold; text-align: center; margin-bottom: 5px; }
-            .slip-header { font-size: 10px; margin-bottom: 6px; line-height: 1.35; border-bottom: 1px dashed #000; padding-bottom: 5px; overflow-wrap: break-word; }
-            .slip-table { width: 100%; border-collapse: collapse; margin-top: 3px; border: 1px solid #000; table-layout: fixed; }
-            .slip-table th, .slip-table td { border: 1px solid #000 !important; padding: 2px 3px; font-size: 10px; font-weight: bold; overflow-wrap: break-word; }
             .slip-table th { text-align: center; }
             .slip-table td:nth-child(2) { text-align: center; }
             .slip-table td:nth-child(3) { text-align: right; }
-            .slip-footer-sig { margin-top: 14px; font-size: 10px; font-weight: bold; text-align: center; }
-            .slip-summary-box { border: 1px solid #000 !important; padding: 6px; margin-top: 8px; font-size: 11px; font-weight: bold; }
-            .slip-summary-row { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
             .slip-summary-row > span:last-child { text-align: right; overflow-wrap: break-word; }
-
-            .badge { background: transparent !important; border: 1px solid #000 !important; color: #000 !important; padding: 1px 3px; font-weight: bold; font-size: 9px; }
-            .input-dotted { border-bottom: 1px dotted #000 !important; font-size: 10px !important; }
-            .header-layout { border-bottom: 1px dashed #000 !important; padding-bottom: 6px !important; margin-bottom: 6px !important; }
-            .field-label { font-size: 11px !important; }
         }
+
+        /* =========================================
+           PRINT TYPOGRAPHY — kept OUTSIDE @media print, gated by a
+           .print-scale class instead. The thermal printer prints exactly
+           the page height we request (it does not auto-trim trailing/
+           leading blank space), so the JS that requests that height
+           (hero-chrome.js's getPrintHeightMicrons) needs to measure this
+           exact rendering — which only works if these rules are also
+           active on-screen, for a moment, while it's measuring. See
+           heroPrint() in hero-chrome.js.
+           ========================================= */
+        body.print-scale { font-size: 11px; }
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) table { font-size: 9px; }
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) td,
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) th { padding: 2px; }
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .footer-stats { font-size: 10px; padding: 6px !important; }
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .sum-row.highlight { font-size: 13px !important; }
+
+        body.print-scale .slip-title { font-size: 13px; font-weight: bold; text-align: center; margin-bottom: 5px; }
+        body.print-scale .slip-header { font-size: 10px; margin-bottom: 6px; line-height: 1.35; border-bottom: 1px dashed #000; padding-bottom: 5px; overflow-wrap: break-word; }
+        body.print-scale .slip-table { width: 100%; border-collapse: collapse; margin-top: 3px; border: 1px solid #000; table-layout: fixed; }
+        body.print-scale .slip-table th, body.print-scale .slip-table td { border: 1px solid #000 !important; padding: 2px 3px; font-size: 10px; font-weight: bold; overflow-wrap: break-word; }
+        body.print-scale .slip-footer-sig { margin-top: 14px; font-size: 10px; font-weight: bold; text-align: center; }
+        body.print-scale .slip-summary-box { border: 1px solid #000 !important; padding: 6px; margin-top: 8px; font-size: 11px; font-weight: bold; }
+        body.print-scale .slip-summary-row { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
+
+        body.print-scale .badge { background: transparent !important; border: 1px solid #000 !important; color: #000 !important; padding: 1px 3px; font-weight: bold; font-size: 9px; }
+        body.print-scale .input-dotted { border-bottom: 1px dotted #000 !important; font-size: 10px !important; }
+        body.print-scale .header-layout { border-bottom: 1px dashed #000 !important; padding-bottom: 6px !important; margin-bottom: 6px !important; }
+        body.print-scale .field-label { font-size: 11px !important; }

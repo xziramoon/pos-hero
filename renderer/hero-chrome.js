@@ -86,15 +86,52 @@
     // Silent receipt printing — replaces window.print() so the CSS
     // @page 80mm size actually gets used (the native print dialog
     // ignores it and just uses the driver's own paper-size setting).
+    //
+    // The printer prints exactly the page height it's told — it does not
+    // auto-trim leading or trailing blank space — so the height sent to
+    // silentPrint() needs to match the real rendered content closely. The
+    // relevant #print*Area element is display:none on screen (only shown
+    // under @media print), and @media print's font sizes don't apply
+    // outside an actual print pass either — so a plain scrollHeight read
+    // here would both see 0 height AND, if forced visible, use the larger
+    // on-screen font sizes. body.print-scale (in base.css, deliberately
+    // NOT scoped to @media print) mirrors the exact print typography so
+    // this measurement matches what will actually be printed.
     // ---------------------------------------------------------------
+    window.measurePrintHeightMicrons = function measurePrintHeightMicrons() {
+        var body = document.body;
+        var el = body.classList.contains('printing-drawer') ? document.getElementById('printDrawerArea')
+            : body.classList.contains('printing-exchange') ? document.getElementById('printExchangeArea')
+            : body.classList.contains('printing-recon') ? document.getElementById('printReconArea')
+            : body.classList.contains('print-summary-only') ? document.getElementById('printSummaryArea')
+            : document.querySelector('.paper');
+        if (!el) return 3276000;
+
+        var prevCssText = el.style.cssText;
+        el.style.cssText = prevCssText + '; display: block !important; position: fixed !important; ' +
+            'left: -9999px !important; top: 0 !important; visibility: hidden !important; ' +
+            'width: 72mm !important; max-width: 72mm !important; height: auto !important; max-height: none !important;';
+        var pxHeight = el.scrollHeight;
+        el.style.cssText = prevCssText;
+
+        if (!pxHeight) return 3276000;
+        var mm = (pxHeight * 25.4 / 96) + 8; // content height + a small safety buffer (top/bottom @page margins are 3mm each)
+        var microns = Math.round(mm * 1000);
+        return Math.max(35000, Math.min(microns, 3276000));
+    }
+
     window.heroPrint = function () {
         if (window.heroWindow && window.heroWindow.silentPrint) {
-            window.heroWindow.silentPrint().then(function (res) {
+            document.body.classList.add('print-scale');
+            var heightMicrons = measurePrintHeightMicrons();
+            window.heroWindow.silentPrint(heightMicrons).then(function (res) {
                 if (!res || !res.success) {
                     alert('⚠️ พิมพ์ไม่สำเร็จ: ' + ((res && res.reason) || 'ไม่ทราบสาเหตุ') + '\nตรวจสอบว่าเครื่องพิมพ์เปิดอยู่และเชื่อมต่อดีหรือไม่');
                 }
+                document.body.classList.remove('print-scale');
                 if (typeof clearPrintClasses === 'function') clearPrintClasses();
             }).catch(function () {
+                document.body.classList.remove('print-scale');
                 if (typeof clearPrintClasses === 'function') clearPrintClasses();
             });
         } else {
