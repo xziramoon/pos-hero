@@ -213,6 +213,22 @@ app.on('window-all-closed', () => {
   // Widget lives in the tray; do not quit when the window closes.
 });
 
+// Receipt printing: the native OS print dialog (window.print()'s default
+// path) ignores the page's CSS @page size entirely and just uses whatever
+// paper size is sitting in the driver/dialog — which is how a thermal
+// receipt printer ends up printing a full A4-length sheet. Printing
+// silently, with no dialog in the way, is what actually respects the
+// CSS-declared 80mm page size (and is nicer for a cashier anyway — no
+// dialog to click through on every receipt).
+ipcMain.handle('print:silent', () => {
+  return new Promise((resolve) => {
+    if (!mainWindow) { resolve({ success: false, reason: 'no window' }); return; }
+    mainWindow.webContents.print({ silent: true, printBackground: true }, (success, reason) => {
+      resolve({ success, reason });
+    });
+  });
+});
+
 app.on('before-quit', () => {
   isQuitting = true;
 });

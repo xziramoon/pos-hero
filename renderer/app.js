@@ -330,7 +330,7 @@
         }
 
         function clearPrintClasses() { document.body.classList.remove('printing-drawer', 'printing-exchange', 'print-summary-only', 'printing-recon'); }
-        function printMain() { clearPrintClasses(); window.print(); }
+        function printMain() { clearPrintClasses(); heroPrint(); }
 
         function executePrintDrawer() {
             clearPrintClasses();
@@ -349,7 +349,7 @@
             document.getElementById('slipDrDiff').innerText = document.getElementById('dsDiffBox').innerText.replace(/[✅🟡🔴]/g, '').trim();
             document.body.classList.add('printing-drawer');
             closeDrawerModal();
-            window.print();
+            heroPrint();
         }
 
         function initExchangeTable() { document.getElementById('exchangeTableBody').innerHTML = denoms.filter(d=>d.val<1000).map(d => '<tr><td>' + d.exLabel + '</td><td style="text-align:right;"><input type="number" id="ex_' + d.val + '" class="num-input" style="width: 100px; text-align:right;" placeholder="0" oninput="calcExchange()"></td></tr>').join(''); }
@@ -369,7 +369,7 @@
             document.getElementById('slipExTotalVal').innerText = totalAmount.toLocaleString('en-US');
             document.body.classList.add('printing-exchange');
             closeExchangeModal();
-            window.print();
+            heroPrint();
         }
 
         function exportToExcel() {
@@ -461,7 +461,7 @@
             document.getElementById('slipRcDiff').innerHTML = document.getElementById('reconDiffBox').innerHTML;
             document.body.classList.add('printing-recon');
             closeReconModal();
-            window.print();
+            heroPrint();
         }
 
         function printSummaryOnly() {
@@ -478,7 +478,7 @@
             document.getElementById('slipSumNet').innerText = document.getElementById('sumNet').innerText;
             document.getElementById('slipSumExpense').innerText = document.getElementById('sumExpense').innerText;
             document.body.classList.add('print-summary-only');
-            window.print();
+            heroPrint();
         }
 
         window.addEventListener('afterprint', function() { clearPrintClasses(); });

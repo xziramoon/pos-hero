@@ -82,6 +82,26 @@
     window.closeThemeModal = function () {
         document.getElementById('themeModal').style.display = 'none';
     };
+    // ---------------------------------------------------------------
+    // Silent receipt printing — replaces window.print() so the CSS
+    // @page 80mm size actually gets used (the native print dialog
+    // ignores it and just uses the driver's own paper-size setting).
+    // ---------------------------------------------------------------
+    window.heroPrint = function () {
+        if (window.heroWindow && window.heroWindow.silentPrint) {
+            window.heroWindow.silentPrint().then(function (res) {
+                if (!res || !res.success) {
+                    alert('⚠️ พิมพ์ไม่สำเร็จ: ' + ((res && res.reason) || 'ไม่ทราบสาเหตุ') + '\nตรวจสอบว่าเครื่องพิมพ์เปิดอยู่และเชื่อมต่อดีหรือไม่');
+                }
+                if (typeof clearPrintClasses === 'function') clearPrintClasses();
+            }).catch(function () {
+                if (typeof clearPrintClasses === 'function') clearPrintClasses();
+            });
+        } else {
+            window.print();
+        }
+    };
+
     window.selectTheme = function (name) {
         if (name === DEFAULT_THEME) {
             document.documentElement.removeAttribute('data-theme');
