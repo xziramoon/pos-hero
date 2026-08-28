@@ -22,7 +22,7 @@
     <!-- 🪙 MINI WIDGET — TBH-style tiny always-on-top HUD shown while "minimized".
          Hidden by default; renderer/hero-chrome.js toggles body.mini-mode based
          on main.js's mode-changed IPC and swaps this in instead of hiding entirely. -->
-    <div id="miniWidget" class="no-print" onclick="window.heroWindow && window.heroWindow.exitMini()" title="คลิกเพื่อขยายเต็มจอ">
+    <div id="miniWidget" class="no-print" onclick="heroExitMini()" title="คลิกเพื่อขยายเต็มจอ">
         <span class="mini-expand-hint">⤢</span>
         <div class="mini-coin"></div>
         <div class="mini-info">
@@ -31,6 +31,12 @@
             <div class="mini-sub" id="miniLastTx">— ยังไม่มีรายการ —</div>
         </div>
     </div>
+
+    <!-- Full-viewport curtain used only during the enter/exit mini-mode
+         transition — see renderer/theme-hero.css's #modeShutter rules and
+         hero-chrome.js's mode-transition handling. Masks the native window
+         resize (Windows has no smooth-resize API) so it lands invisibly. -->
+    <div id="modeShutter" class="no-print"></div>
 
     <!-- ⚔️ HERO TITLEBAR — frameless window drag region + window controls -->
     <div class="hero-titlebar no-print">

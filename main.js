@@ -14,6 +14,11 @@ const WIN_MIN_HEIGHT = 480;
 const MINI_WIDTH = 210;
 const MINI_HEIGHT = 86;
 const EDGE_MARGIN = 12;
+// Must match the moment renderer/theme-hero.css's #modeShutter finishes closing
+// (shutter-close keyframe) — the native setBounds() for entering mini mode is
+// deliberately deferred until this shutter is fully opaque, so the resize jump
+// is masked instead of visible. If you retime the CSS, retime this too.
+const COLLAPSE_MS = 230;
 
 let mainWindow = null;
 let tray = null;
@@ -21,6 +26,8 @@ let isPinned = true;
 let isQuitting = false;
 let isMiniMode = false;
 let lastFullBounds = null;
+let isTransitioning = false;
+let transitionToken = 0;
 
 function getDockedPosition(width, height) {
   const display = screen.getPrimaryDisplay();
@@ -45,7 +52,12 @@ function createWindow() {
     resizable: true,
     skipTaskbar: true,
     show: false,
-    backgroundColor: '#0f0a1e',
+    // Matches the amber theme's --hero-bg-1 (the default theme, renderer/theme-hero.css)
+    // rather than an arbitrary purple — this is what briefly shows through on the
+    // newly-exposed region during a window resize, so it needs to track whatever
+    // theme is actually active (renderer pushes the real value via ui:bg-color once
+    // it knows the saved theme; see enterMiniMode/exitMiniMode below).
+    backgroundColor: '#120d09',
     icon: path.join(__dirname, 'build', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -140,20 +152,47 @@ function dockToCorner() {
 // docked in the corner (coin mascot + today's net total). All the app
 // logic (records, Pushbullet socket) keeps running underneath — this is
 // purely a window-bounds + renderer-CSS state, nothing is unloaded.
-function enterMiniMode() {
-  if (!mainWindow) return;
-  if (!isMiniMode) lastFullBounds = mainWindow.getBounds();
+// Entering mini mode is staged in two IPC round-trips instead of one:
+// 1) 'mode-transition' tells the renderer to start its shrink animation
+//    (titlebar/paper/controls animate out, then a full-viewport shutter
+//    closes over the content).
+// 2) Only once that shutter is fully opaque — signalled by
+//    'window:collapse-ready', or a COLLAPSE_MS watchdog if the renderer
+//    never acks (reduced-motion, a wedged renderer, etc.) — do we actually
+//    call setBounds(). Windows has no animated-resize API (BrowserWindow's
+//    setBounds animate flag is macOS-only), so the real jump is hidden
+//    behind the shutter rather than shown raw.
+function commitEnterMini(token) {
+  // isTransitioning is cleared by whichever of {renderer ack, watchdog} wins the
+  // race, so the loser (same token, but isTransitioning already false) is a no-op
+  // instead of double-committing setBounds()/mode-changed.
+  if (token !== transitionToken || !mainWindow || !isTransitioning) return;
   mainWindow.setMinimumSize(MINI_WIDTH, MINI_HEIGHT);
   mainWindow.setResizable(false);
   const { x, y } = getDockedPosition(MINI_WIDTH, MINI_HEIGHT);
   mainWindow.setBounds({ x, y, width: MINI_WIDTH, height: MINI_HEIGHT });
   isMiniMode = true;
+  isTransitioning = false;
   mainWindow.webContents.send('mode-changed', 'mini');
-  mainWindow.show();
 }
 
+function enterMiniMode() {
+  if (!mainWindow || isMiniMode || isTransitioning) return;
+  lastFullBounds = mainWindow.getBounds();
+  isTransitioning = true;
+  const token = ++transitionToken;
+  mainWindow.webContents.send('mode-transition', { to: 'mini' });
+  setTimeout(() => commitEnterMini(token), COLLAPSE_MS + 40);
+}
+
+// Exiting mini mode has no shutter-timing dependency: the window is tiny
+// today and the target (full) size is known up front, so the resize can
+// happen immediately — the renderer then animates the full UI assembling
+// back in on top of the newly-grown window.
 function exitMiniMode() {
-  if (!mainWindow) return;
+  if (!mainWindow || !isMiniMode || isTransitioning) return;
+  isTransitioning = true;
+  transitionToken++;
   mainWindow.setMinimumSize(WIN_MIN_WIDTH, WIN_MIN_HEIGHT);
   mainWindow.setResizable(true);
   if (lastFullBounds) {
@@ -166,6 +205,7 @@ function exitMiniMode() {
   mainWindow.webContents.send('mode-changed', 'full');
   mainWindow.show();
   mainWindow.focus();
+  isTransitioning = false;
 }
 
 app.whenReady().then(() => {
@@ -272,6 +312,21 @@ ipcMain.on('window:enter-mini', () => {
 
 ipcMain.on('window:exit-mini', () => {
   exitMiniMode();
+});
+
+// Ack from the renderer that its shutter has finished closing — commit the
+// real resize now instead of waiting out the full COLLAPSE_MS watchdog.
+ipcMain.on('window:collapse-ready', () => {
+  commitEnterMini(transitionToken);
+});
+
+// The window's backgroundColor briefly shows through the newly-exposed
+// region on a grow (see the BrowserWindow constructor comment) — keep it
+// synced to whichever theme's --hero-bg-1 the renderer actually has active.
+ipcMain.on('ui:bg-color', (_event, hex) => {
+  if (mainWindow && typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex)) {
+    mainWindow.setBackgroundColor(hex);
+  }
 });
 
 ipcMain.on('money:in', (_event, payload) => {

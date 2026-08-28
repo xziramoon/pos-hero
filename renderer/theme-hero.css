@@ -59,6 +59,22 @@
         --amber60-bg: rgba(251, 191, 36, 0.14);
         --cyan-recon: #22d3ee;
         --cyan-recon-bg: rgba(34, 211, 238, 0.14);
+
+        /* Must match MINI_WIDTH/MINI_HEIGHT in main.js exactly — the mini-mode
+           collapse animation relies on #miniWidget's on-screen rect being
+           byte-identical before and after the native window resize, so any
+           drift here shows up as a 1px+ jump at the cut. No build step ties
+           these together, so they have to be kept in sync by hand. */
+        --mini-w: 210px;
+        --mini-h: 86px;
+
+        /* Mode-transition easings — shared by the enter/exit mini-mode
+           animation chain below. Named by feel, not by which element uses
+           them, since several elements share the same curve. */
+        --ease-mode-out: cubic-bezier(0.4, 0, 1, 0.5);      /* accelerate away */
+        --ease-mode-shutter: cubic-bezier(0.33, 0, 0.15, 1); /* fast start, firm stop */
+        --ease-mode-in: cubic-bezier(0.22, 1.2, 0.36, 1);    /* back-out overshoot */
+        --ease-hud-land: cubic-bezier(0.34, 1.56, 0.64, 1);  /* stronger back-out */
     }
 
     /* ===== "มรกตราตรี" (Emerald Night) ===== */
@@ -487,18 +503,36 @@
     /* ---------------------------------------------------------------
        Mini widget — TBH-style tiny always-on-top HUD shown while the
        window is "minimized" instead of vanishing to the tray.
+
+       The terminal (non-animating) state is a plain display:none/flex
+       swap on body.mini-mode, same as always — the .mode-anim rules
+       below only matter for the ~420-430ms transition in between, and
+       are always removed again once it lands. See main.js's
+       enterMiniMode/exitMiniMode + hero-chrome.js's mode-transition
+       handling for the JS side of this sequence.
        --------------------------------------------------------------- */
     body.mini-mode { overflow: hidden; }
     body.mini-mode .hero-titlebar,
     body.mini-mode .paper,
-    body.mini-mode .floating-controls {
+    body.mini-mode .floating-controls,
+    body.mini-mode .modal-overlay {
         display: none !important;
     }
 
     #miniWidget {
         display: none;
         position: fixed;
-        inset: 0;
+        /* True final on-screen rect, not inset:0 — while the window is
+           still full-size mid-transition this is where the HUD will end
+           up, and once mini mode commits the window IS that rect, so the
+           coordinates are identical either side of the native resize.
+           That's what lets the resize cut land invisibly behind the
+           shutter instead of visibly moving anything. */
+        right: 0;
+        bottom: 0;
+        width: var(--mini-w);
+        height: var(--mini-h);
+        z-index: 4100;
         align-items: center;
         gap: 10px;
         padding: 8px 10px;
@@ -511,9 +545,96 @@
         -webkit-user-select: none;
         user-select: none;
     }
-    body.mini-mode #miniWidget { display: flex; }
+    body.mini-mode #miniWidget,
+    body.mode-anim #miniWidget {
+        display: flex;
+    }
     #miniWidget:hover { filter: brightness(1.18); }
     #miniWidget:active { filter: brightness(0.95); }
+
+    /* Full-viewport curtain that closes over the content right before the
+       native window resize fires, and opens again right after — the
+       resize itself always happens while this is fully opaque, so the
+       frame before/after the jump differs only in flat background. */
+    #modeShutter {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 4000;
+        background: var(--hero-bg-1);
+        pointer-events: none;
+        transform: translateY(-100%);
+    }
+    body.mode-anim #modeShutter { display: block; }
+
+    /* ---------------------------------------------------------------
+       Mode transition (enter/exit mini) — timings here are the source
+       of truth; main.js's COLLAPSE_MS (230ms) is tuned to match the
+       shutter-close delay+duration below, not the other way around.
+       --------------------------------------------------------------- */
+    body.mode-anim { overflow: hidden; }
+    body.mode-anim .hero-titlebar,
+    body.mode-anim .paper,
+    body.mode-anim .floating-controls {
+        pointer-events: none;
+        will-change: transform, opacity;
+    }
+
+    /* enter mini: chrome slides/scales out, shutter closes, HUD pops in —
+       all timed to land together right as main.js's resize commits */
+    body.mode-anim.to-mini .hero-titlebar { animation: hero-bar-out 150ms var(--ease-mode-out) both; }
+    body.mode-anim.to-mini .paper { animation: paper-out 170ms var(--ease-mode-out) both; }
+    body.mode-anim.to-mini .floating-controls { animation: float-out 150ms var(--ease-mode-out) both; }
+    body.mode-anim.to-mini #modeShutter { animation: shutter-close 190ms var(--ease-mode-shutter) 40ms both; }
+    body.mode-anim.to-mini #miniWidget { animation: hud-pop-in 120ms cubic-bezier(0.2, 0.9, 0.3, 1) 110ms both; }
+    /* higher specificity than the rule above on purpose — .land is added
+       by hero-chrome.js at the exact moment main.js's resize actually
+       commits (not a hardcoded delay), so it must win the cascade once
+       the pop-in has finished landing */
+    body.mode-anim.to-mini #miniWidget.land { animation: hud-land 190ms var(--ease-hud-land); }
+
+    /* exit mini: HUD blooms outward, shutter opens, chrome assembles back
+       in with a stagger (titlebar -> paper -> controls) so it reads as
+       "assembling" rather than a single fade.
+       Delays here are relative to when 'to-full' is added (i.e. when the
+       resize already committed, ~100ms into the overall click-to-full
+       sequence) — NOT relative to the click itself, since the press
+       feedback (#miniWidget.press, below) already covers that first
+       ~100ms on its own, independent of this class. */
+    body.mode-anim.to-full #modeShutter { animation: shutter-open 190ms var(--ease-mode-shutter) 50ms both; }
+    body.mode-anim.to-full #miniWidget { animation: hud-bloom-out 130ms ease-in 10ms both; }
+    body.mode-anim.to-full .hero-titlebar { animation: hero-bar-in 200ms var(--ease-mode-in) 70ms both; }
+    body.mode-anim.to-full .paper { animation: paper-in 220ms var(--ease-mode-in) 100ms both; }
+    body.mode-anim.to-full .floating-controls { animation: float-in 200ms var(--ease-mode-in) 140ms both; }
+
+    /* instant tactile ack on click, before anything else has started —
+       so the click never feels dropped even though the real resize is
+       deferred by ~100ms */
+    #miniWidget.press { animation: hud-press 100ms ease-out; }
+
+    @keyframes hero-bar-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-100%); } }
+    @keyframes hero-bar-in { from { opacity: 0; transform: translateY(-100%); } to { opacity: 1; transform: translateY(0); } }
+
+    @keyframes paper-out { from { opacity: 1; transform: scale(1) translateY(0); } to { opacity: 0; transform: scale(0.92) translateY(12px); } }
+    @keyframes paper-in { from { opacity: 0; transform: scale(0.94) translateY(16px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+    @keyframes float-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(130%); } }
+    @keyframes float-in { from { opacity: 0; transform: translateY(130%); } to { opacity: 1; transform: translateY(0); } }
+
+    @keyframes shutter-close { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+    @keyframes shutter-open { from { transform: translateY(0); } to { transform: translateY(-100%); } }
+
+    @keyframes hud-pop-in { from { opacity: 0; transform: scale(0.7) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+    @keyframes hud-land {
+        0%   { transform: scale(1); box-shadow: 0 0 0 rgba(0, 0, 0, 0); }
+        28%  { transform: scaleX(1.10) scaleY(0.86); box-shadow: 0 0 18px var(--hero-glow); }
+        100% { transform: scale(1); box-shadow: 0 0 0 rgba(0, 0, 0, 0); }
+    }
+
+    @keyframes hud-bloom-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(1.18); } }
+
+    @keyframes hud-press { 0% { transform: scale(1); } 50% { transform: scale(0.93); } 100% { transform: scale(1); } }
 
     .mini-expand-hint {
         position: absolute;
