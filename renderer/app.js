@@ -621,6 +621,19 @@
         let pbLastActivity = 0; // [FIX #13] เวลาล่าสุดที่ได้รับข้อความใดๆ จาก Pushbullet (รวม nop)
         let pbLastWarnAt = 0; // เวลาล่าสุดที่เด้ง notification เตือนหลุดการเชื่อมต่อ (กันสแปม)
 
+        // [BACKFILL] dedup ถาวรด้วย push.iden — กันนับซ้ำระหว่าง realtime WS กับ poll backfill
+        // (ต่างจาก signature 3 วิใน pbInject ที่ออกแบบมากันแค่ push/mirror เด้งซ้อนกันตอนเดียว)
+        var _pbProcessedIdens = (function() {
+            try { return JSON.parse(localStorage.getItem('pbProcessedIdens')) || []; } catch(e) { return []; }
+        })();
+        function isPushProcessed(iden) { return !!iden && _pbProcessedIdens.indexOf(iden) > -1; }
+        function markPushProcessed(iden) {
+            if (!iden) return;
+            _pbProcessedIdens.push(iden);
+            if (_pbProcessedIdens.length > 500) _pbProcessedIdens = _pbProcessedIdens.slice(-500);
+            localStorage.setItem('pbProcessedIdens', JSON.stringify(_pbProcessedIdens));
+        }
+
         // [FIX #6] ตัวแปรสำหรับ debounce + dedup
         let _pbInjectQueue = [];
         let _pbInjectProcessing = false;
@@ -711,6 +724,10 @@
                     pbLastActivity = Date.now();
                     setPbStatus('🟢 เชื่อมต่อแล้ว (รอแจ้งเตือน)', 'ok');
                     pbLog('เชื่อมต่อสำเร็จ รอรับ push...', 'i');
+                    // [BACKFILL] จังหวะเพิ่งต่อ WS สำเร็จ มักตรงกับตอนมือถือเพิ่งตื่นจาก
+                    // Doze/background throttling แล้ว flush queue แจ้งเตือนที่ค้างไป Pushbullet
+                    // พอดี → เช็คย้อนหลังทันทีแทนที่จะรอรอบ interval ถัดไป
+                    pollMissedPushes();
                 };
 
                 pbWs.onmessage = function(ev) {
@@ -807,6 +824,8 @@
                 pbLog('🔌 เครื่องกลับมาทำงาน (resume/unlock) → บังคับเชื่อมต่อ Pushbullet ใหม่', 'w');
                 disconnectPushbullet();
                 connectPushbullet();
+                // [BACKFILL] เผื่อมีแจ้งเตือนเข้ามาระหว่างที่เครื่องหลับ/ล็อกอยู่
+                pollMissedPushes();
             });
         }
 
@@ -1007,47 +1026,92 @@
         // [FIX #10] handlePbPush — [FIX] เพิ่ม keyword + ใช้ appName
         // ==========================================
         function handlePbPush(push) {
-            var title = push.title || '';
-            var body = push.body || '';
-            // [FIX] ดึงชื่อแอปที่ส่งแจ้งเตือนมาด้วย!
-            var appName = push.application_name || push.app_name || '';
-            var full = title + ' ' + body + ' ' + appName;
-
-            pbLog('---', 'i');
-            pbLog('APP: ' + appName, 'i');
-            pbLog('TITLE: ' + title.substring(0,40), 'i');
-            pbLog('BODY: ' + body.substring(0,60), 'i');
-
-            // [FIX #10] เพิ่ม keyword ให้ครอบคลุมมากขึ้น
-            var kw = ['เงินเข้า','รับโอน','เงินโอน','received','transfer','เข้า','รับเงิน','ได้รับ',
-                      'top-up','เติมเงิน','คืนเงิน','money received','incoming',
-                      'เงินโอนเข้า','โอนเงินเข้า','รับชำระ','ชำระเงิน','promptpay','พร้อมเพย์',
-                      'สำเร็จ','โอนเงิน','ยอดเงิน','เงินโอนเข้าบัญชี','ชำระ','รับ',
-                      'deposit','credit','payment','transaction'];
-            var isMoney = false;
-            for (var i=0; i<kw.length; i++) {
-                if (full.toLowerCase().indexOf(kw[i]) > -1) { isMoney = true; break; }
-            }
-            if (!isMoney) {
-                pbLog('[SKIP] ไม่ใช่แจ้งเตือนเงินเข้า', 'i');
+            // [BACKFILL] iden ถาวร กันนับซ้ำระหว่าง realtime กับ poll backfill (ถ้าไม่มี iden
+            // ให้ผ่านไปพึ่ง signature-dedup 3 วิใน pbInject แทน)
+            if (push.iden && isPushProcessed(push.iden)) {
+                pbLog('⏭️ ข้าม (ประมวลผลแล้ว): ' + push.iden, 'i');
                 return;
             }
 
-            var amt = extractMoney(full);
-            var src = detectSource(full);
+            try {
+                var title = push.title || '';
+                var body = push.body || '';
+                // [FIX] ดึงชื่อแอปที่ส่งแจ้งเตือนมาด้วย!
+                var appName = push.application_name || push.app_name || '';
+                var full = title + ' ' + body + ' ' + appName;
 
-            if (!amt) {
-                pbLog('[FAIL] อ่านยอดไม่ได้: ' + full.substring(0,80), 'e');
-                return;
+                pbLog('---', 'i');
+                pbLog('APP: ' + appName, 'i');
+                pbLog('TITLE: ' + title.substring(0,40), 'i');
+                pbLog('BODY: ' + body.substring(0,60), 'i');
+
+                // [FIX #10] เพิ่ม keyword ให้ครอบคลุมมากขึ้น
+                var kw = ['เงินเข้า','รับโอน','เงินโอน','received','transfer','เข้า','รับเงิน','ได้รับ',
+                          'top-up','เติมเงิน','คืนเงิน','money received','incoming',
+                          'เงินโอนเข้า','โอนเงินเข้า','รับชำระ','ชำระเงิน','promptpay','พร้อมเพย์',
+                          'สำเร็จ','โอนเงิน','ยอดเงิน','เงินโอนเข้าบัญชี','ชำระ','รับ',
+                          'deposit','credit','payment','transaction'];
+                var isMoney = false;
+                for (var i=0; i<kw.length; i++) {
+                    if (full.toLowerCase().indexOf(kw[i]) > -1) { isMoney = true; break; }
+                }
+                if (!isMoney) {
+                    pbLog('[SKIP] ไม่ใช่แจ้งเตือนเงินเข้า', 'i');
+                    return;
+                }
+
+                var amt = extractMoney(full);
+                var src = detectSource(full);
+
+                if (!amt) {
+                    pbLog('[FAIL] อ่านยอดไม่ได้: ' + full.substring(0,80), 'e');
+                    return;
+                }
+
+                if (!src) {
+                    src = 'fallback';
+                    pbLog('[WARN] ไม่รู้แหล่งที่มา → ใช้ fallback', 'w');
+                }
+
+                pbInject(amt, src, title, body);
+            } finally {
+                // [BACKFILL] ประทับ iden ว่า "ประมวลผลแล้ว" ไม่ว่าผลจะเป็นบันทึกสำเร็จหรือ skip/fail
+                // ก็ตาม กัน poll รอบถัดไปดึง push เดิมมาพยายามซ้ำอีกไม่รู้จบ
+                if (push.iden) markPushProcessed(push.iden);
             }
-
-            if (!src) {
-                src = 'fallback';
-                pbLog('[WARN] ไม่รู้แหล่งที่มา → ใช้ fallback', 'w');
-            }
-
-            pbInject(amt, src, title, body);
         }
+
+        // ==========================================
+        // [BACKFILL] pollMissedPushes — ตาข่ายนิรภัยสำรองจาก WS realtime
+        // ดึง push ที่อาจตกหล่นจาก Pushbullet REST API มา backfill ผ่าน pipeline เดิม
+        // (handlePbPush มี iden-dedup กันนับซ้ำกับของที่ WS realtime เก็บไปแล้วอยู่แล้ว)
+        // ==========================================
+        function getPbPollTs() {
+            var v = parseInt(localStorage.getItem('lastPbPollTs'), 10);
+            // ครั้งแรกที่ไม่เคยมีค่า ให้เริ่มจาก "ตอนนี้" กันดึงประวัติเก่าย้อนหลังเป็นวันๆ มา replay
+            if (!v) { v = Date.now(); localStorage.setItem('lastPbPollTs', String(v)); }
+            return v;
+        }
+
+        function pollMissedPushes() {
+            if (!pbToken || !window.heroWindow || !window.heroWindow.pollMissedPushes) return;
+            var sinceTs = getPbPollTs() / 1000; // Pushbullet API ใช้หน่วยวินาที (epoch)
+            window.heroWindow.pollMissedPushes(pbToken, sinceTs).then(function(res) {
+                if (!res || !res.success) {
+                    if (res && res.reason) pbLog('[POLL] เช็คย้อนหลังไม่สำเร็จ: ' + res.reason, 'w');
+                    return;
+                }
+                var pushes = (res.pushes || []).filter(function(p) { return p.active !== false; });
+                pushes.sort(function(a, b) { return (a.created || 0) - (b.created || 0); });
+                pbLog('[POLL] เช็คย้อนหลัง: พบ ' + pushes.length + ' รายการ', 'i');
+                pushes.forEach(function(p) { handlePbPush(p); });
+                localStorage.setItem('lastPbPollTs', String(Date.now()));
+            }).catch(function(e) {
+                pbLog('[POLL] error: ' + e.message, 'e');
+            });
+        }
+
+        setInterval(pollMissedPushes, 2 * 60 * 1000); // เช็คย้อนหลังทุก 2 นาทีเป็นพื้นฐาน
 
         // ==========================================
         // Initialize App

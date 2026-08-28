@@ -299,6 +299,28 @@ ipcMain.on('money:in', (_event, payload) => {
   notif.show();
 });
 
+// Realtime-only ingestion (the Pushbullet WebSocket) has a hard failure
+// mode: if a push is missed for any reason — phone-side Doze/battery
+// manager delaying the mirror sync after long idle, a reconnect window,
+// a brief network blip — it's gone forever with no way to recover it.
+// This REST poll is the backfill safety net: ask Pushbullet's API for
+// anything modified since we last checked, so a delayed-but-eventually-
+// synced push still gets picked up. Runs in main (not renderer) so it
+// isn't subject to renderer CORS/webSecurity at all.
+ipcMain.handle('pb:poll-missed', async (_event, { token, sinceTs }) => {
+  try {
+    const res = await fetch(
+      `https://api.pushbullet.com/v2/pushes?modified_after=${encodeURIComponent(sinceTs)}&active=true`,
+      { headers: { 'Access-Token': token } }
+    );
+    if (!res.ok) return { success: false, reason: 'http ' + res.status };
+    const data = await res.json();
+    return { success: true, pushes: data.pushes || [] };
+  } catch (e) {
+    return { success: false, reason: e.message };
+  }
+});
+
 ipcMain.on('pb:disconnected-warning', (_event, downMinutes) => {
   if (!Notification.isSupported()) return;
   const notif = new Notification({
