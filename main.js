@@ -273,7 +273,16 @@ ipcMain.handle('print:silent', (_event, heightMicrons) => {
     mainWindow.webContents.print({
       silent: true,
       printBackground: true,
-      pageSize: { width: 80000, height }
+      pageSize: { width: 80000, height },
+      // Without this, Chromium's print backend defaults marginType to
+      // 'default' — its own standard ~1cm page margin, stacked ON TOP OF
+      // (not replaced by) the CSS @page margin below. On an 80mm receipt
+      // that reads as a large, oddly empty gap at the top (and a matching
+      // one at the bottom/sides) that no amount of @page tuning can ever
+      // close, because it isn't coming from CSS at all. 'none' leaves the
+      // @page rule in renderer/base.css (margin: 1mm 4mm) as the only
+      // margin actually applied.
+      margins: { marginType: 'none' }
     }, (success, reason) => {
       resolve({ success, reason });
     });

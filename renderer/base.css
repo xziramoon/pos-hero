@@ -1,13 +1,17 @@
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;800&family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap');
 
         :root {
-            --primary: #2563eb; --success: #16a34a; --info: #0284c7;     
+            --primary: #2563eb; --success: #16a34a; --info: #0284c7;
             --danger: #dc2626; --warning: #f59e0b; --purple: #8b5cf6;
             --dark: #000000; --bg: #f1f5f9;
             --green60: #1A7A52; --green60-bg: #E4F4EC; --green60-light: #B8E3CC;
             --red60: #C13B28; --red60-bg: #FBEAE7;
             --amber60: #9A6200; --amber60-bg: #FDF3DC;
             --cyan-recon: #0891b2; --cyan-recon-bg: #cffafe;
+            /* User-adjustable multiplier for every print-scale font-size below
+               (renderer/hero-chrome.js's adjustPrintZoom, persisted as
+               localStorage 'printZoom') — 1 = the baseline sizes as written. */
+            --print-zoom: 1;
         }
 
         body { 
@@ -248,11 +252,19 @@
                "auto" height is what makes Chromium print a short receipt
                instead of assuming an A4/Letter-tall page and having the
                printer driver dump that whole imaginary page onto the roll. */
-            /* Margins: the EPSON TM-T82III's real printable area on an 80mm
-               roll starts ~3.75mm in from the left edge (confirmed from its
-               driver capabilities) — a 2mm margin sat inside that dead zone
-               and got clipped. 4mm clears it with a little room to spare. */
-            @page { size: 80mm auto; margin: 3mm 4mm; }
+            /* Margins: pulled from the EPSON TM-T82III driver's own reported
+               PageImageableArea (Get-PrintConfiguration -PrinterName "EPSON
+               TM-T82III Receipt"), not guessed — OriginWidth 3753 microns
+               (~3.75mm dead zone on the left, hence 4mm here) but
+               OriginHeight 0 (the print head needs NO margin at the top at
+               all). The 3mm top margin this used to carry was pure
+               overhead on top of that reality — 1mm left only as slop
+               against print registration, not because the hardware needs
+               it. This (combined with print:silent's own marginType fix in
+               main.js) is what "other programs print flush, we didn't" came
+               down to: two unrelated sources of unrequested top margin
+               stacking on top of each other. */
+            @page { size: 80mm auto; margin: 1mm 4mm; }
             /* grayscale(1) is a defensive net so nothing (a stray color, a
                partial-opacity fill) can reach the printer as anything but
                true black/white/gray — thermal drivers dither non-pure
@@ -263,7 +275,11 @@
                box as (page width − margins); hardcoding 80mm here on top of
                that margin is what pushed content past the printable edge. */
             html, body { background: white; margin: 0; padding: 0; height: auto; }
-            .no-print, .floating-controls, .modal-overlay, .filter-container, .undo-toast { display: none !important; }
+            /* .coin-pop (the floating "บันทึกแล้ว/เงินเข้า!" toast, hero-chrome.js's
+               showCoinPop) isn't marked .no-print and self-removes only after
+               2.5s — printing within that window would leak it onto the
+               receipt at its on-screen fixed position. */
+            .no-print, .floating-controls, .modal-overlay, .filter-container, .undo-toast, .coin-pop { display: none !important; }
 
             body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .paper { width: 100%; max-width: none !important; padding: 0 !important; box-shadow: none !important; border: none !important; margin: 0 !important; height: auto !important; overflow: visible !important; }
             body:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .input-card { display: none !important; }
@@ -297,22 +313,29 @@
            active on-screen, for a moment, while it's measuring. See
            heroPrint() in hero-chrome.js.
            ========================================= */
-        body.print-scale { font-size: 11px; }
-        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) table { font-size: 9px; }
+        /* Baseline sizes bumped up again (previous pass was still too small
+           per feedback) AND every font-size is now calc()'d against
+           --print-zoom so the user can scale it further themselves — see
+           the "🔠 ขนาดตัวอักษรใบเสร็จ" control in the theme modal
+           (renderer/index.html's #themeModal, wired up in hero-chrome.js).
+           calc() against a fixed px base (not em) deliberately, so nested
+           elements don't compound the multiplier. */
+        body.print-scale { font-size: calc(16px * var(--print-zoom, 1)); }
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) table { font-size: calc(14px * var(--print-zoom, 1)); }
         body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) td,
-        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) th { padding: 2px; }
-        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .footer-stats { font-size: 10px; padding: 6px !important; }
-        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .sum-row.highlight { font-size: 13px !important; }
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) th { padding: 3px; }
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .footer-stats { font-size: calc(15px * var(--print-zoom, 1)); padding: 6px !important; }
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .sum-row.highlight { font-size: calc(18px * var(--print-zoom, 1)) !important; }
 
-        body.print-scale .slip-title { font-size: 13px; font-weight: bold; text-align: center; margin-bottom: 5px; }
-        body.print-scale .slip-header { font-size: 10px; margin-bottom: 6px; line-height: 1.35; border-bottom: 1px dashed #000; padding-bottom: 5px; overflow-wrap: break-word; }
+        body.print-scale .slip-title { font-size: calc(18px * var(--print-zoom, 1)); font-weight: bold; text-align: center; margin-bottom: 5px; }
+        body.print-scale .slip-header { font-size: calc(15px * var(--print-zoom, 1)); margin-bottom: 6px; line-height: 1.4; border-bottom: 1px dashed #000; padding-bottom: 5px; overflow-wrap: break-word; }
         body.print-scale .slip-table { width: 100%; border-collapse: collapse; margin-top: 3px; border: 1px solid #000; table-layout: fixed; }
-        body.print-scale .slip-table th, body.print-scale .slip-table td { border: 1px solid #000 !important; padding: 2px 3px; font-size: 10px; font-weight: bold; overflow-wrap: break-word; }
-        body.print-scale .slip-footer-sig { margin-top: 14px; font-size: 10px; font-weight: bold; text-align: center; }
-        body.print-scale .slip-summary-box { border: 1px solid #000 !important; padding: 6px; margin-top: 8px; font-size: 11px; font-weight: bold; }
+        body.print-scale .slip-table th, body.print-scale .slip-table td { border: 1px solid #000 !important; padding: 3px 4px; font-size: calc(15px * var(--print-zoom, 1)); font-weight: bold; overflow-wrap: break-word; }
+        body.print-scale .slip-footer-sig { margin-top: 14px; font-size: calc(15px * var(--print-zoom, 1)); font-weight: bold; text-align: center; }
+        body.print-scale .slip-summary-box { border: 1px solid #000 !important; padding: 6px; margin-top: 8px; font-size: calc(16px * var(--print-zoom, 1)); font-weight: bold; }
         body.print-scale .slip-summary-row { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
 
-        body.print-scale .badge { background: transparent !important; border: 1px solid #000 !important; color: #000 !important; padding: 1px 3px; font-weight: bold; font-size: 9px; }
-        body.print-scale .input-dotted { border-bottom: 1px dotted #000 !important; font-size: 10px !important; }
+        body.print-scale .badge { background: transparent !important; border: 1px solid #000 !important; color: #000 !important; padding: 1px 3px; font-weight: bold; font-size: calc(14px * var(--print-zoom, 1)); }
+        body.print-scale .input-dotted { border-bottom: 1px dotted #000 !important; font-size: calc(15px * var(--print-zoom, 1)) !important; }
         body.print-scale .header-layout { border-bottom: 1px dashed #000 !important; padding-bottom: 6px !important; margin-bottom: 6px !important; }
-        body.print-scale .field-label { font-size: 11px !important; }
+        body.print-scale .field-label { font-size: calc(16px * var(--print-zoom, 1)) !important; }

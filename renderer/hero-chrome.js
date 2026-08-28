@@ -232,6 +232,35 @@
         }
     };
 
+    // ---------------------------------------------------------------
+    // Print font-size zoom — adjustable multiplier on top of the
+    // baseline sizes in base.css's body.print-scale block (every rule
+    // there is calc()'d against --print-zoom). Persisted so it's a
+    // once-per-printer setting, not something re-tuned every receipt.
+    // ---------------------------------------------------------------
+    var PRINT_ZOOM_MIN = 0.7, PRINT_ZOOM_MAX = 1.6, PRINT_ZOOM_STEP = 0.1;
+
+    function getPrintZoom() {
+        var v = parseFloat(localStorage.getItem('printZoom'));
+        return (v && v >= PRINT_ZOOM_MIN && v <= PRINT_ZOOM_MAX) ? v : 1;
+    }
+
+    function applyPrintZoom(zoom) {
+        document.documentElement.style.setProperty('--print-zoom', zoom);
+        var label = document.getElementById('printZoomValue');
+        if (label) label.textContent = Math.round(zoom * 100) + '%';
+    }
+
+    window.adjustPrintZoom = function (delta) {
+        // round() here kills float drift from repeated +/-0.1 steps (e.g. 1.2999999999999998)
+        var next = Math.round((getPrintZoom() + delta) * 10) / 10;
+        next = Math.min(PRINT_ZOOM_MAX, Math.max(PRINT_ZOOM_MIN, next));
+        localStorage.setItem('printZoom', next);
+        applyPrintZoom(next);
+    };
+
+    applyPrintZoom(getPrintZoom());
+
     // The native window's backgroundColor (set at BrowserWindow construction
     // in main.js) briefly shows through the newly-exposed region whenever the
     // window grows — most visibly right after exiting mini mode. Keep it

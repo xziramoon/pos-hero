@@ -292,6 +292,17 @@
                     <div class="theme-swatch-label">เทาเงาราตรี</div>
                 </div>
             </div>
+
+            <!-- ขนาดตัวอักษรตอนพิมพ์ใบเสร็จ — ปรับได้เอง ไม่ต้องรอแก้โค้ด
+                 (renderer/base.css's --print-zoom, wired up in hero-chrome.js) -->
+            <div class="print-zoom-section">
+                <div class="print-zoom-title">🔠 ขนาดตัวอักษรใบเสร็จ</div>
+                <div class="print-zoom-row">
+                    <button class="print-zoom-btn" onclick="adjustPrintZoom(-0.1)">−</button>
+                    <span class="print-zoom-value" id="printZoomValue">100%</span>
+                    <button class="print-zoom-btn" onclick="adjustPrintZoom(0.1)">+</button>
+                </div>
+            </div>
         </div>
     </div>
 
