@@ -274,7 +274,21 @@
             /* NOT a fixed width: @page's margin already defines the content
                box as (page width − margins); hardcoding 80mm here on top of
                that margin is what pushed content past the printable edge. */
-            html, body { background: white; margin: 0; padding: 0; height: auto; }
+            /* body's base rule (outside @media print, near the top of this
+               file) is "display: flex; min-height: 100vh" for on-screen
+               centering. Nothing was ever resetting that for print, so the
+               printed receipt stayed a flex item with align-items' default
+               'stretch' inside a box pinned to 100vh — and during printing
+               that vh resolves against the app window's real height, not
+               the short custom page height requested for the receipt. The
+               receipt content got stretched/positioned inside that far
+               taller box, which is what printed as a large run of blank
+               paper before the actual receipt: exactly "the paper is
+               excessive" from testing. display:block + min-height:0 here
+               makes the printed page size to its own content again, matching
+               the off-screen scrollHeight measurement that main.js's
+               print:silent height is actually computed from. */
+            html, body { background: white; margin: 0; padding: 0; height: auto; display: block; min-height: 0; }
             /* .coin-pop (the floating "บันทึกแล้ว/เงินเข้า!" toast, hero-chrome.js's
                showCoinPop) isn't marked .no-print and self-removes only after
                2.5s — printing within that window would leak it onto the
