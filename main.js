@@ -266,10 +266,31 @@ ipcMain.handle('print:silent', (_event, heightMicrons) => {
     // Electron's system-print path does NOT pick this up from the page's
     // CSS @page rule the way printToPDF's preferCSSPageSize does — it has
     // to be requested explicitly here, in microns. The renderer measures
-    // the actual print content and sends its real height so the job is
-    // sized to the content, not to the printer driver's nominal "up to
-    // 3276mm" continuous-roll ceiling.
-    const height = Number(heightMicrons) > 0 ? Math.min(Number(heightMicrons), 3276000) : 3276000;
+    // the actual print content height for reference, but see below for why
+    // that value can't be sent to the driver as-is.
+    //
+    // Confirmed by capturing the raw ESC/POS bytes actually sent to the
+    // EPSON TM-T82III driver (redirected its port to a file, same
+    // driver/print() call as here): the driver does NOT support an
+    // arbitrary custom page height. `Get-PrintConfiguration`'s
+    // PrintCapabilitiesXML lists only two heights for an 80mm roll —
+    // 297000 and 3276000 microns (psk:PageMediaSize Option6/Option7).
+    // Any other height gets silently snapped up to the nearest one of
+    // those AND the (shorter) rendered content gets bottom-anchored
+    // inside it — padded with literal `ESC J n` (print-and-feed) commands
+    // BEFORE the actual receipt image. Requesting our measured ~87mm
+    // produced 1680 dots (210.2mm — exactly 297mm − 87mm) of blank feed
+    // ahead of the content; requesting the driver's own 297000 exactly
+    // produced ~0. So: always request one of the driver's own registered
+    // heights, never a computed custom one. Virtually every receipt fits
+    // under 297mm; only fall back to the 3276mm ceiling for the rare one
+    // that doesn't (which will still get bottom-anchor padding within
+    // that ceiling — this is a limit of what the driver can do, not
+    // something CSS or content measurement can route around).
+    const PRESET_HEIGHT_MICRONS = 297000;
+    const MAX_HEIGHT_MICRONS = 3276000;
+    const measured = Number(heightMicrons) > 0 ? Number(heightMicrons) : PRESET_HEIGHT_MICRONS;
+    const height = measured <= PRESET_HEIGHT_MICRONS ? PRESET_HEIGHT_MICRONS : MAX_HEIGHT_MICRONS;
     mainWindow.webContents.print({
       silent: true,
       printBackground: true,
