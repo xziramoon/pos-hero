@@ -176,60 +176,99 @@
         document.getElementById('themeModal').style.display = 'none';
     };
     // ---------------------------------------------------------------
-    // Silent receipt printing — replaces window.print() so the CSS
-    // @page 80mm size actually gets used (the native print dialog
-    // ignores it and just uses the driver's own paper-size setting).
+    // Receipt printing — bypasses the OS print pipeline entirely instead
+    // of going through window.print()/webContents.print(). That pipeline
+    // was a dead end for this printer: `pageSize`'s height either doesn't
+    // match one of the EPSON TM-T82III driver's two registered roll
+    // lengths (297mm/3276mm) — in which case the driver itself pads with
+    // blank BEFORE the content to reach the nearest one — or it does match
+    // one exactly, in which case Chromium faithfully rasterizes and sends
+    // the *entire* requested page (mostly blank) since that's genuinely
+    // how tall it was told the page is. Confirmed both failure modes by
+    // capturing the literal bytes sent to the driver (redirected its port
+    // to a file). Neither is fixable by tuning the requested page size —
+    // the driver has no third, correctly-sized option.
     //
-    // The printer prints exactly the page height it's told — it does not
-    // auto-trim leading or trailing blank space — so the height sent to
-    // silentPrint() needs to match the real rendered content closely. The
-    // relevant #print*Area element is display:none on screen (only shown
-    // under @media print), and @media print's font sizes don't apply
-    // outside an actual print pass either — so a plain scrollHeight read
-    // here would both see 0 height AND, if forced visible, use the larger
-    // on-screen font sizes. body.print-scale (in base.css, deliberately
-    // NOT scoped to @media print) mirrors the exact print typography so
-    // this measurement matches what will actually be printed.
+    // Instead: screenshot the actual rendered receipt element directly
+    // (webContents.capturePage, sized to its real content — no page
+    // concept involved at all), convert that bitmap to a 1-bit image in
+    // main.js, and send it as a raw ESC/POS `GS v 0` raster command
+    // straight to the printer via the Win32 WritePrinter API (through the
+    // bundled build/raw-print.ps1 helper) — completely sidestepping
+    // Windows' GDI page-size negotiation for this printer.
+    //
+    // The relevant #print*Area element is display:none on screen and its
+    // @media print font sizes don't apply outside an actual print pass —
+    // so it's temporarily made visible on-screen (not display:none'd
+    // elsewhere; capturePage's rect just crops to it) with print-scale's
+    // typography applied, screenshotted, then hidden again.
     // ---------------------------------------------------------------
-    window.measurePrintHeightMicrons = function measurePrintHeightMicrons() {
+    function currentPrintElement() {
         var body = document.body;
-        var el = body.classList.contains('printing-drawer') ? document.getElementById('printDrawerArea')
+        return body.classList.contains('printing-drawer') ? document.getElementById('printDrawerArea')
             : body.classList.contains('printing-exchange') ? document.getElementById('printExchangeArea')
             : body.classList.contains('printing-recon') ? document.getElementById('printReconArea')
             : body.classList.contains('print-summary-only') ? document.getElementById('printSummaryArea')
             : document.querySelector('.paper');
-        if (!el) return 3276000;
-
-        var prevCssText = el.style.cssText;
-        el.style.cssText = prevCssText + '; display: block !important; position: fixed !important; ' +
-            'left: -9999px !important; top: 0 !important; visibility: hidden !important; ' +
-            'width: 72mm !important; max-width: 72mm !important; height: auto !important; max-height: none !important;';
-        var pxHeight = el.scrollHeight;
-        el.style.cssText = prevCssText;
-
-        if (!pxHeight) return 3276000;
-        var mm = (pxHeight * 25.4 / 96) + 8; // content height + a small safety buffer (top/bottom @page margins are 3mm each)
-        var microns = Math.round(mm * 1000);
-        return Math.max(35000, Math.min(microns, 3276000));
     }
 
+    // Must match main.js's RECEIPT_DOT_WIDTH (72mm printable width at 203dpi,
+    // byte-aligned). CSS `zoom` (not `transform: scale`) renders the element
+    // at this pixel density directly — Chromium re-lays-out and re-rasterizes
+    // text/borders at the zoomed size, same as real browser zoom, instead of
+    // just stretching an already-rasterized bitmap. That distinction matters
+    // here: capturing at the unzoomed ~272px-wide native size and upscaling
+    // the *bitmap* afterward (nativeImage.resize) blurred thin text strokes
+    // into near-invisibility while thicker borders survived — confirmed by
+    // decoding a real capture back into a PNG and comparing.
+    var RECEIPT_DOT_WIDTH = 576;
+    var CAPTURE_ZOOM = RECEIPT_DOT_WIDTH / (72 * 96 / 25.4);
+
     window.heroPrint = function () {
-        if (window.heroWindow && window.heroWindow.silentPrint) {
-            document.body.classList.add('print-scale');
-            var heightMicrons = measurePrintHeightMicrons();
-            window.heroWindow.silentPrint(heightMicrons).then(function (res) {
-                if (!res || !res.success) {
-                    alert('⚠️ พิมพ์ไม่สำเร็จ: ' + ((res && res.reason) || 'ไม่ทราบสาเหตุ') + '\nตรวจสอบว่าเครื่องพิมพ์เปิดอยู่และเชื่อมต่อดีหรือไม่');
-                }
-                document.body.classList.remove('print-scale');
-                if (typeof clearPrintClasses === 'function') clearPrintClasses();
-            }).catch(function () {
-                document.body.classList.remove('print-scale');
-                if (typeof clearPrintClasses === 'function') clearPrintClasses();
-            });
-        } else {
-            window.print();
+        if (!(window.heroWindow && window.heroWindow.rawPrint)) { window.print(); return; }
+
+        var el = currentPrintElement();
+        if (!el) { if (typeof clearPrintClasses === 'function') clearPrintClasses(); return; }
+
+        document.body.classList.add('print-scale');
+        var prevCssText = el.style.cssText;
+        el.style.cssText = prevCssText + '; display: block !important; position: fixed !important; ' +
+            'left: 0 !important; top: 0 !important; z-index: 2147483647 !important; background: #fff !important; ' +
+            'width: 72mm !important; max-width: 72mm !important; height: auto !important; max-height: none !important;';
+
+        function cleanup() {
+            el.style.cssText = prevCssText;
+            document.body.classList.remove('print-scale');
+            if (typeof clearPrintClasses === 'function') clearPrintClasses();
         }
+
+        // Two rAFs plus a short fixed delay: rAFs alone guarantee a layout
+        // pass has run with the styles above applied, but not that Chromium's
+        // compositor has actually committed/presented that frame yet — a real
+        // capture in testing intermittently still caught the pre-hide frame
+        // (titlebar/buttons/filter tabs still visible) with just double-rAF.
+        // Printing isn't latency-sensitive, so trade a few ms for reliability
+        // rather than chase a tighter but flakier signal.
+        requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+                setTimeout(function () {
+                    var rect = el.getBoundingClientRect();
+                    var payload = {
+                        x: Math.round(rect.left), y: Math.round(rect.top),
+                        width: Math.round(rect.width), height: Math.round(rect.height)
+                    };
+                    window.heroWindow.rawPrint(payload).then(function (res) {
+                        cleanup();
+                        if (!res || !res.success) {
+                            alert('⚠️ พิมพ์ไม่สำเร็จ: ' + ((res && res.reason) || 'ไม่ทราบสาเหตุ') + '\nตรวจสอบว่าเครื่องพิมพ์เปิดอยู่และเชื่อมต่อดีหรือไม่');
+                        }
+                    }).catch(function (err) {
+                        cleanup();
+                        alert('⚠️ พิมพ์ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+                    });
+                }, 150);
+            });
+        });
     };
 
     // ---------------------------------------------------------------

@@ -1,6 +1,9 @@
 const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage, Notification, powerMonitor } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { execFile } = require('child_process');
 
 app.setAppUserModelId('com.xziramoon.poshero');
 
@@ -260,54 +263,93 @@ app.on('window-all-closed', () => {
 // silently, with no dialog in the way, is what actually respects the
 // CSS-declared 80mm page size (and is nicer for a cashier anyway — no
 // dialog to click through on every receipt).
-ipcMain.handle('print:silent', (_event, heightMicrons) => {
-  return new Promise((resolve) => {
-    if (!mainWindow) { resolve({ success: false, reason: 'no window' }); return; }
-    // Electron's system-print path does NOT pick this up from the page's
-    // CSS @page rule the way printToPDF's preferCSSPageSize does — it has
-    // to be requested explicitly here, in microns. The renderer measures
-    // the actual print content height for reference, but see below for why
-    // that value can't be sent to the driver as-is.
-    //
-    // Confirmed by capturing the raw ESC/POS bytes actually sent to the
-    // EPSON TM-T82III driver (redirected its port to a file, same
-    // driver/print() call as here): the driver does NOT support an
-    // arbitrary custom page height. `Get-PrintConfiguration`'s
-    // PrintCapabilitiesXML lists only two heights for an 80mm roll —
-    // 297000 and 3276000 microns (psk:PageMediaSize Option6/Option7).
-    // Any other height gets silently snapped up to the nearest one of
-    // those AND the (shorter) rendered content gets bottom-anchored
-    // inside it — padded with literal `ESC J n` (print-and-feed) commands
-    // BEFORE the actual receipt image. Requesting our measured ~87mm
-    // produced 1680 dots (210.2mm — exactly 297mm − 87mm) of blank feed
-    // ahead of the content; requesting the driver's own 297000 exactly
-    // produced ~0. So: always request one of the driver's own registered
-    // heights, never a computed custom one. Virtually every receipt fits
-    // under 297mm; only fall back to the 3276mm ceiling for the rare one
-    // that doesn't (which will still get bottom-anchor padding within
-    // that ceiling — this is a limit of what the driver can do, not
-    // something CSS or content measurement can route around).
-    const PRESET_HEIGHT_MICRONS = 297000;
-    const MAX_HEIGHT_MICRONS = 3276000;
-    const measured = Number(heightMicrons) > 0 ? Number(heightMicrons) : PRESET_HEIGHT_MICRONS;
-    const height = measured <= PRESET_HEIGHT_MICRONS ? PRESET_HEIGHT_MICRONS : MAX_HEIGHT_MICRONS;
-    mainWindow.webContents.print({
-      silent: true,
-      printBackground: true,
-      pageSize: { width: 80000, height },
-      // Without this, Chromium's print backend defaults marginType to
-      // 'default' — its own standard ~1cm page margin, stacked ON TOP OF
-      // (not replaced by) the CSS @page margin below. On an 80mm receipt
-      // that reads as a large, oddly empty gap at the top (and a matching
-      // one at the bottom/sides) that no amount of @page tuning can ever
-      // close, because it isn't coming from CSS at all. 'none' leaves the
-      // @page rule in renderer/base.css (margin: 1mm 4mm) as the only
-      // margin actually applied.
-      margins: { marginType: 'none' }
-    }, (success, reason) => {
-      resolve({ success, reason });
+// Receipt printing bypasses webContents.print() entirely — see
+// hero-chrome.js's heroPrint() for the full "why" (that path can't win:
+// the EPSON TM-T82III driver only accepts two page heights, and whichever
+// one you request, either the driver or Chromium pads the rest of it with
+// blank paper). Instead: screenshot the receipt element exactly as
+// rendered (webContents.capturePage — no page/media concept involved),
+// threshold it to 1-bit, and send it as a raw ESC/POS image straight to
+// the printer via Win32 WritePrinter (build/raw-print.ps1), which prints
+// exactly as many dot-rows as the image actually has and nothing more.
+const RECEIPT_DOT_WIDTH = 576; // 72mm printable width (80mm roll - 4mm margins/side) at 203dpi; /8 = 72 exactly, so byte-aligned with no partial-byte row padding
+
+function buildEscPosRaster(bitmapBGRA, widthPx, heightPx) {
+  const bytesPerRow = Math.ceil(widthPx / 8);
+  // Bands of 256 dot-rows mirror how the OEM driver's own raster output was
+  // structured (observed while diagnosing the page-size bug) — keeps each
+  // GS v 0 command comfortably within typical printer receive-buffer limits
+  // instead of gambling on one command covering the whole receipt.
+  const BAND_HEIGHT = 256;
+  // Print CSS already forces pure black text/borders (`color:#000 !important`)
+  // on a white background plus `filter: grayscale(1)`, so this only needs to
+  // reliably split those two, not handle real grayscale/anti-aliased input.
+  const LUMINANCE_THRESHOLD = 160;
+
+  const chunks = [Buffer.from([0x1b, 0x40])]; // ESC @ — initialize printer
+
+  for (let bandStart = 0; bandStart < heightPx; bandStart += BAND_HEIGHT) {
+    const bandHeight = Math.min(BAND_HEIGHT, heightPx - bandStart);
+    const raster = Buffer.alloc(bytesPerRow * bandHeight, 0);
+    for (let y = 0; y < bandHeight; y++) {
+      const srcY = bandStart + y;
+      for (let x = 0; x < widthPx; x++) {
+        const srcIdx = (srcY * widthPx + x) * 4;
+        const b = bitmapBGRA[srcIdx], g = bitmapBGRA[srcIdx + 1], r = bitmapBGRA[srcIdx + 2], a = bitmapBGRA[srcIdx + 3];
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        if (a > 10 && luminance < LUMINANCE_THRESHOLD) {
+          raster[y * bytesPerRow + (x >> 3)] |= (0x80 >> (x & 7));
+        }
+      }
+    }
+    const xL = bytesPerRow & 0xff, xH = (bytesPerRow >> 8) & 0xff;
+    const yL = bandHeight & 0xff, yH = (bandHeight >> 8) & 0xff;
+    chunks.push(Buffer.from([0x1d, 0x76, 0x30, 0x00, xL, xH, yL, yH])); // GS v 0 — print raster bit image
+    chunks.push(raster);
+  }
+
+  chunks.push(Buffer.from([0x1b, 0x64, 0x02])); // ESC d 2 — feed 2 lines, a small cut margin
+  chunks.push(Buffer.from([0x1d, 0x56, 0x41, 0x00])); // GS V 65 0 — full cut, no extra feed (matches the OEM driver's own cut command)
+  return Buffer.concat(chunks);
+}
+
+ipcMain.handle('print:raw', async (_event, rect) => {
+  if (!mainWindow) return { success: false, reason: 'no window' };
+  if (!rect || !(rect.width > 0) || !(rect.height > 0)) return { success: false, reason: 'invalid capture rect' };
+
+  let tmpFile;
+  try {
+    const captured = await mainWindow.webContents.capturePage({
+      x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: rect.width, height: rect.height
     });
-  });
+    const resized = captured.resize({ width: RECEIPT_DOT_WIDTH, quality: 'best' });
+    const size = resized.getSize();
+    const escpos = buildEscPosRaster(resized.toBitmap(), size.width, size.height);
+
+    tmpFile = path.join(os.tmpdir(), `pos-hero-receipt-${Date.now()}.bin`);
+    fs.writeFileSync(tmpFile, escpos);
+
+    const printers = await mainWindow.webContents.getPrintersAsync();
+    const target = printers.find((p) => p.isDefault) || printers[0];
+    if (!target) return { success: false, reason: 'ไม่พบเครื่องพิมพ์ในระบบ' };
+
+    const scriptPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'build', 'raw-print.ps1')
+      : path.join(__dirname, 'build', 'raw-print.ps1');
+
+    return await new Promise((resolve) => {
+      execFile('powershell.exe', [
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
+        '-PrinterName', target.name, '-FilePath', tmpFile
+      ], { windowsHide: true }, (error, _stdout, stderr) => {
+        resolve(error ? { success: false, reason: (stderr || error.message).trim() } : { success: true, reason: '' });
+      });
+    });
+  } catch (err) {
+    return { success: false, reason: err && err.message ? err.message : String(err) };
+  } finally {
+    if (tmpFile) fs.unlink(tmpFile, () => {});
+  }
 });
 
 app.on('before-quit', () => {

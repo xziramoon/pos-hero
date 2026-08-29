@@ -334,6 +334,24 @@
            (renderer/index.html's #themeModal, wired up in hero-chrome.js).
            calc() against a fixed px base (not em) deliberately, so nested
            elements don't compound the multiplier. */
+        /* Colors/chrome-hiding that used to live only in @media print above.
+           Since heroPrint() now screenshots the live page directly (see
+           hero-chrome.js) instead of ever opening a real print pass,
+           @media print never activates for this path any more — without
+           this, receipt text kept its normal on-screen color (e.g. the
+           title computed to rgb(241,245,249), functionally invisible
+           against the white capture background) because nothing was
+           forcing it to black. Confirmed by reading getComputedStyle()
+           on a live capture before this fix: color was that near-white,
+           not #000. The actual color/background/border reset for this
+           lives in theme-hero.css instead of here — it needs to be in
+           whichever stylesheet loads LAST to reliably win cascade ties
+           against each theme's own !important overrides (e.g.
+           tr.row-transfer's themed tint); see that file's copy of this
+           rule for why. */
+        body.print-scale .no-print, body.print-scale .floating-controls, body.print-scale .modal-overlay,
+        body.print-scale .filter-container, body.print-scale .undo-toast, body.print-scale .coin-pop { display: none !important; }
+
         body.print-scale { font-size: calc(16px * var(--print-zoom, 1)); }
         body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) table { font-size: calc(14px * var(--print-zoom, 1)); }
         body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) td,

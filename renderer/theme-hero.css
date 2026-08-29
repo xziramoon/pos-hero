@@ -846,3 +846,21 @@
         * { transition: none !important; animation: none !important; }
     }
 }
+
+/* Deliberately placed last in the last-loaded stylesheet (index.html loads
+   this after base.css) so it wins cascade ties against every theme's own
+   !important color overrides above (e.g. tr.row-transfer's themed tint) —
+   without that, receipt capture (hero-chrome.js's heroPrint) would leak
+   whichever theme happens to be active into the printed receipt instead of
+   plain black-on-white, since base.css's own body.print-scale reset rule
+   loses those ties by source order alone. See base.css's body.print-scale
+   rule for the fuller "why" (@media print never activates for the capture
+   path any more, so nothing else forces this). */
+body.print-scale, body.print-scale * {
+    color: #000 !important;
+    border-color: #000 !important;
+    box-shadow: none !important;
+    background-color: transparent !important;
+    background-image: none !important;
+    text-shadow: none !important;
+}

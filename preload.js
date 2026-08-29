@@ -17,5 +17,5 @@ contextBridge.exposeInMainWorld('heroWindow', {
   onModeTransition: (callback) => ipcRenderer.on('mode-transition', (_event, payload) => callback(payload)),
   collapseReady: () => ipcRenderer.send('window:collapse-ready'),
   setBackgroundColor: (hex) => ipcRenderer.send('ui:bg-color', hex),
-  silentPrint: (heightMicrons) => ipcRenderer.invoke('print:silent', heightMicrons)
+  rawPrint: (rect) => ipcRenderer.invoke('print:raw', rect)
 });
