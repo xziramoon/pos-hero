@@ -22,7 +22,8 @@
     <!-- 🪙 MINI WIDGET — TBH-style tiny always-on-top HUD shown while "minimized".
          Hidden by default; renderer/hero-chrome.js toggles body.mini-mode based
          on main.js's mode-changed IPC and swaps this in instead of hiding entirely. -->
-    <div id="miniWidget" class="no-print" onclick="heroExitMini()" title="คลิกเพื่อขยายเต็มจอ">
+    <div id="miniWidget" class="no-print" onclick="heroExitMini()" title="คลิกเพื่อขยายเต็มจอ (ลากเพื่อย้ายตำแหน่ง)">
+        <span class="mini-pb-led" id="miniPbLed" title="สถานะ Pushbullet"></span>
         <span class="mini-expand-hint">⤢</span>
         <div class="mini-coin"></div>
         <div class="mini-info">
@@ -44,6 +45,7 @@
             <span class="hero-coin">🪙</span>
             <span class="hero-title-text">POS HERO</span>
             <span class="hero-subtitle">TASKBAR RECON WIDGET</span>
+            <span class="pb-led" id="pbLed" title="สถานะ Pushbullet"></span>
         </div>
         <div class="hero-titlebar-btns">
             <button class="hero-tbtn" id="btnTheme" title="เปลี่ยนธีมสี" onclick="openThemeModal()">🎨</button>

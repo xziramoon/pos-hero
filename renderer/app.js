@@ -640,18 +640,30 @@
         window._lastPbSig = "";
         window._lastPbTime = 0;
 
-        // โหลด token + config ที่เคยบันทึกไว้
+        // โหลด token + config ที่เคยบันทึกไว้ + auto-connect ทันทีถ้ามี token
+        // (เดิมเชื่อมต่อก็ต่อเมื่อเปิด Modal กระทบยอดครั้งแรกของเซสชันเท่านั้น —
+        // ทำให้ไฟสถานะ Pushbullet ค้างเทาไปเรื่อยๆ ถ้าไม่เคยเปิด modal นั้นเลย)
         document.addEventListener('DOMContentLoaded', function() {
             const t = document.getElementById('pbToken');
             if (t && pbToken) t.value = pbToken;
             loadPbConfig();
+            if (pbToken) connectPushbullet();
         });
 
         function setPbStatus(html, cls) {
             const el = document.getElementById('pbStatus');
-            if (!el) return;
-            el.innerHTML = html;
-            el.className = 'pb-status ' + (cls || '');
+            if (el) {
+                el.innerHTML = html;
+                el.className = 'pb-status ' + (cls || '');
+            }
+            // Glanceable LED echoing the same state — one in the full titlebar,
+            // one in the mini HUD — so the connection can be read without
+            // opening the reconciliation modal that #pbStatus lives in.
+            const plainText = html.replace(/<[^>]*>/g, '');
+            const led = document.getElementById('pbLed');
+            if (led) { led.className = 'pb-led ' + (cls || ''); led.title = 'Pushbullet: ' + plainText; }
+            const miniLed = document.getElementById('miniPbLed');
+            if (miniLed) { miniLed.className = 'mini-pb-led ' + (cls || ''); miniLed.title = 'Pushbullet: ' + plainText; }
         }
 
         function pbLog(msg, type) {

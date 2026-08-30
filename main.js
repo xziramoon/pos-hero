@@ -40,6 +40,46 @@ function getDockedPosition(width, height) {
   return { x, y };
 }
 
+// The mini HUD used to always re-dock to the bottom-right corner on every
+// entry into mini mode; the user wanted to be able to drag it anywhere and
+// have it stay put. Since the whole widget is a native -webkit-app-region:
+// drag area (renderer/theme-hero.css), dragging is just the OS moving the
+// window — no renderer/IPC involvement needed, we just listen for the
+// window's own 'moved' event below and remember where it ended up.
+const MINI_POSITION_FILE = path.join(app.getPath('userData'), 'window-state.json');
+let lastMiniPosition = null;
+let miniPositionSaveTimer = null;
+
+function loadMiniPosition() {
+  try {
+    const data = JSON.parse(fs.readFileSync(MINI_POSITION_FILE, 'utf8'));
+    if (Number.isFinite(data.miniX) && Number.isFinite(data.miniY)) {
+      return { x: data.miniX, y: data.miniY };
+    }
+  } catch (e) {}
+  return null;
+}
+
+// Debounced so a real drag (which fires 'moved' continuously) doesn't hit
+// disk on every pixel — only once movement has settled.
+function saveMiniPosition(pos) {
+  if (miniPositionSaveTimer) clearTimeout(miniPositionSaveTimer);
+  miniPositionSaveTimer = setTimeout(() => {
+    try { fs.writeFileSync(MINI_POSITION_FILE, JSON.stringify({ miniX: pos.x, miniY: pos.y })); } catch (e) {}
+  }, 400);
+}
+
+// Guards against a remembered position from a monitor that's no longer
+// connected (laptop undocked, external display unplugged) — falls back to
+// the corner instead of placing the HUD somewhere off-screen and unreachable.
+function isPositionOnScreen(x, y, width, height) {
+  const display = screen.getDisplayMatching({ x, y, width, height });
+  const b = display.bounds;
+  const overlapX = Math.min(x + width, b.x + b.width) - Math.max(x, b.x);
+  const overlapY = Math.min(y + height, b.y + b.height) - Math.max(y, b.y);
+  return overlapX > width * 0.3 && overlapY > height * 0.3;
+}
+
 function createWindow() {
   const { x, y } = getDockedPosition(WIN_WIDTH, WIN_HEIGHT);
 
@@ -78,6 +118,26 @@ function createWindow() {
 
   mainWindow.setAlwaysOnTop(true, 'floating');
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Fires for both a real user drag (the mini HUD is a native app-region:
+  // drag element, so dragging it IS the OS moving this window) and our own
+  // programmatic setBounds()/setPosition() calls — the size check is what
+  // tells those apart, since only the mini HUD's own bounds are exactly
+  // MINI_WIDTH x MINI_HEIGHT. This also means dockToCorner() naturally
+  // re-remembers the corner as the new mini position with no extra code.
+  // 'moved' alone isn't reliable across platforms (historically macOS-only
+  // in Electron) — 'move' is the one that actually fires on Windows, both
+  // continuously during a real drag and once for a programmatic move.
+  const onWindowMoved = () => {
+    if (isTransitioning) return;
+    const [w, h] = mainWindow.getSize();
+    if (w !== MINI_WIDTH || h !== MINI_HEIGHT) return;
+    const [x, y] = mainWindow.getPosition();
+    lastMiniPosition = { x, y };
+    saveMiniPosition(lastMiniPosition);
+  };
+  mainWindow.on('move', onWindowMoved);
+  mainWindow.on('moved', onWindowMoved);
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -172,7 +232,11 @@ function commitEnterMini(token) {
   if (token !== transitionToken || !mainWindow || !isTransitioning) return;
   mainWindow.setMinimumSize(MINI_WIDTH, MINI_HEIGHT);
   mainWindow.setResizable(false);
-  const { x, y } = getDockedPosition(MINI_WIDTH, MINI_HEIGHT);
+  // Reuse wherever the user last dragged the HUD to, unless that spot is on
+  // a display that's no longer connected — then fall back to the corner.
+  const { x, y } = (lastMiniPosition && isPositionOnScreen(lastMiniPosition.x, lastMiniPosition.y, MINI_WIDTH, MINI_HEIGHT))
+    ? lastMiniPosition
+    : getDockedPosition(MINI_WIDTH, MINI_HEIGHT);
   mainWindow.setBounds({ x, y, width: MINI_WIDTH, height: MINI_HEIGHT });
   isMiniMode = true;
   isTransitioning = false;
@@ -212,6 +276,7 @@ function exitMiniMode() {
 }
 
 app.whenReady().then(() => {
+  lastMiniPosition = loadMiniPosition();
   createWindow();
   createTray();
 

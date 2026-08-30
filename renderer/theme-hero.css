@@ -544,6 +544,12 @@
         border-color: var(--hero-border-lt) var(--hero-border-dk) var(--hero-border-dk) var(--hero-border-lt);
         -webkit-user-select: none;
         user-select: none;
+        /* Lets the user drag the mini HUD anywhere on screen (it no longer
+           has to stay docked to the corner) — this is a native OS window
+           drag, same mechanism as .hero-titlebar-drag below, so it costs no
+           IPC round-trip. A plain click (no movement) still reaches the
+           onclick="heroExitMini()" above it as normal. */
+        -webkit-app-region: drag;
     }
     body.mini-mode #miniWidget,
     body.mode-anim #miniWidget {
@@ -642,6 +648,47 @@
         right: 6px;
         font-size: 11px;
         color: var(--hero-text-faint);
+    }
+
+    /* ---------------------------------------------------------------
+       Pushbullet connection status LED — one glanceable dot for whether
+       the realtime auto-record socket is actually up, in both the full
+       titlebar and the mini HUD, kept in sync by renderer/app.js's
+       setPbStatus() (the same function that already drives #pbStatus'
+       text inside the reconciliation modal). Default (no state class) =
+       gray = idle/never connected this session.
+       --------------------------------------------------------------- */
+    .pb-led, .mini-pb-led {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #6b7280;
+        box-shadow: 0 0 4px rgba(107, 114, 128, 0.6);
+        flex-shrink: 0;
+    }
+    .pb-led.ok, .mini-pb-led.ok {
+        background: #22c55e;
+        box-shadow: 0 0 6px rgba(34, 197, 94, 0.9);
+        animation: pb-led-pulse 2s ease-in-out infinite;
+    }
+    .pb-led.warn, .mini-pb-led.warn {
+        background: #eab308;
+        box-shadow: 0 0 6px rgba(234, 179, 8, 0.9);
+        animation: pb-led-blink 1s steps(1) infinite;
+    }
+    .pb-led.err, .mini-pb-led.err {
+        background: #ef4444;
+        box-shadow: 0 0 6px rgba(239, 68, 68, 0.9);
+    }
+    @keyframes pb-led-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    @keyframes pb-led-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.3; } }
+
+    .mini-pb-led {
+        position: absolute;
+        top: 5px;
+        left: 7px;
+        width: 7px;
+        height: 7px;
     }
 
     .mini-coin {
