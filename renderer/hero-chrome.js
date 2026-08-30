@@ -103,12 +103,12 @@
 
     }
 
-    // Bound to #miniWidget's onclick in index.html instead of calling
-    // heroWindow.exitMini() directly, so there's an instant tactile
+    // Called on a genuine click (see the drag/click block below) instead of
+    // calling heroWindow.exitMini() directly, so there's an instant tactile
     // response (press bump) even though the real IPC call — and the
     // resize it triggers — is deliberately deferred a beat behind it.
-    // Declared unconditionally (unlike the block above) so the onclick
-    // handler never throws even if window.heroWindow somehow isn't there.
+    // Declared unconditionally (unlike the block above) so it never throws
+    // even if window.heroWindow somehow isn't there.
     var exitMiniPending = false;
     window.heroExitMini = function () {
         if (exitMiniPending) return;
@@ -121,6 +121,73 @@
             if (window.heroWindow && window.heroWindow.exitMini) window.heroWindow.exitMini();
         }, 100);
     };
+
+    // ---------------------------------------------------------------
+    // Mini HUD: click-to-expand vs. drag-to-move, disambiguated with an
+    // explicit pixel threshold instead of -webkit-app-region:drag — that
+    // approach (v1.5.7's first attempt) swallowed real mouse clicks in
+    // practice: a synthetic test click has zero pixel jitter and worked
+    // fine under automated testing, but an actual human click always moves
+    // the cursor a pixel or two, which Windows' own drag-region hit-testing
+    // treated as "drag started" and ate the click entirely.
+    //
+    // Pointer capture (not plain mouse events) is used so drag tracking
+    // survives the cursor outrunning this tiny, constantly-repositioning
+    // window — plain mousemove/mouseup stop arriving the instant the
+    // pointer leaves the window's current bounds. The actual window move
+    // is computed in main.js from the OS cursor position directly (see
+    // window:mini-drag-move), not from renderer event coordinates, for the
+    // same reason.
+    // ---------------------------------------------------------------
+    (function () {
+        var hud = document.getElementById('miniWidget');
+        if (!hud) return;
+        var DRAG_THRESHOLD = 4; // px — a real click always has some jitter; only treat it as a drag once movement clearly exceeds that
+        var dragging = false;
+        var dragMoved = false;
+        var startX = 0, startY = 0;
+        var rafPending = false;
+
+        hud.addEventListener('pointerdown', function (e) {
+            if (e.button !== 0) return;
+            dragging = true;
+            dragMoved = false;
+            startX = e.screenX;
+            startY = e.screenY;
+            hud.setPointerCapture(e.pointerId);
+        });
+
+        hud.addEventListener('pointermove', function (e) {
+            if (!dragging) return;
+            if (!dragMoved) {
+                if (Math.abs(e.screenX - startX) < DRAG_THRESHOLD && Math.abs(e.screenY - startY) < DRAG_THRESHOLD) return;
+                dragMoved = true;
+                hud.classList.add('dragging');
+                if (window.heroWindow && window.heroWindow.dragMiniStart) window.heroWindow.dragMiniStart();
+            }
+            if (!rafPending) {
+                rafPending = true;
+                requestAnimationFrame(function () {
+                    rafPending = false;
+                    if (dragging && window.heroWindow && window.heroWindow.dragMiniMove) window.heroWindow.dragMiniMove();
+                });
+            }
+        });
+
+        function endDrag(e) {
+            if (!dragging) return;
+            dragging = false;
+            hud.classList.remove('dragging');
+            try { hud.releasePointerCapture(e.pointerId); } catch (err) {}
+            if (dragMoved) {
+                if (window.heroWindow && window.heroWindow.dragMiniEnd) window.heroWindow.dragMiniEnd();
+            } else {
+                heroExitMini();
+            }
+        }
+        hud.addEventListener('pointerup', endDrag);
+        hud.addEventListener('pointercancel', endDrag);
+    })();
 
     function showCoinPop(amount, opts) {
         opts = opts || {};

@@ -119,12 +119,12 @@ function createWindow() {
   mainWindow.setAlwaysOnTop(true, 'floating');
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  // Fires for both a real user drag (the mini HUD is a native app-region:
-  // drag element, so dragging it IS the OS moving this window) and our own
-  // programmatic setBounds()/setPosition() calls — the size check is what
-  // tells those apart, since only the mini HUD's own bounds are exactly
-  // MINI_WIDTH x MINI_HEIGHT. This also means dockToCorner() naturally
-  // re-remembers the corner as the new mini position with no extra code.
+  // Fires both for a real user drag (window:mini-drag-move above calling
+  // setPosition() as the user moves the mini HUD) and our own programmatic
+  // setBounds()/setPosition() calls — the size check is what tells those
+  // apart, since only the mini HUD's own bounds are exactly MINI_WIDTH x
+  // MINI_HEIGHT. This also means dockToCorner() naturally re-remembers the
+  // corner as the new mini position with no extra code.
   // 'moved' alone isn't reliable across platforms (historically macOS-only
   // in Electron) — 'move' is the one that actually fires on Windows, both
   // continuously during a real drag and once for a programmatic move.
@@ -262,12 +262,16 @@ function exitMiniMode() {
   transitionToken++;
   mainWindow.setMinimumSize(WIN_MIN_WIDTH, WIN_MIN_HEIGHT);
   mainWindow.setResizable(true);
-  if (lastFullBounds) {
-    mainWindow.setBounds(lastFullBounds);
-  } else {
-    const { x, y } = getDockedPosition(WIN_WIDTH, WIN_HEIGHT);
-    mainWindow.setBounds({ x, y, width: WIN_WIDTH, height: WIN_HEIGHT });
-  }
+  // Expanding always lands back at the corner — the user found it jarring
+  // for the full window to reappear wherever it happened to be sitting
+  // before it was last minimized, now that the mini HUD itself can be
+  // dragged far from there. Width/height are still restored from
+  // lastFullBounds so a manual resize survives the round-trip; only the
+  // position is pinned.
+  const width = lastFullBounds ? lastFullBounds.width : WIN_WIDTH;
+  const height = lastFullBounds ? lastFullBounds.height : WIN_HEIGHT;
+  const { x, y } = getDockedPosition(width, height);
+  mainWindow.setBounds({ x, y, width, height });
   isMiniMode = false;
   mainWindow.webContents.send('mode-changed', 'full');
   mainWindow.show();
@@ -449,6 +453,39 @@ ipcMain.on('window:enter-mini', () => {
 
 ipcMain.on('window:exit-mini', () => {
   exitMiniMode();
+});
+
+// Custom mini-HUD dragging. -webkit-app-region:drag on the whole clickable
+// widget (the first attempt at this) turned out to swallow real mouse
+// clicks in practice on real hardware — a synthetic test click has zero
+// pixel jitter and worked fine under Playwright, but an actual human click
+// always moves the cursor a pixel or two, and Windows' own drag-region
+// hit-testing treated that as "drag started" and ate the click. Doing the
+// drag ourselves with an explicit distance threshold (renderer/hero-chrome.js)
+// is forgiving of that jitter; here we just move the window by however far
+// the OS cursor has moved since the drag started, read directly rather than
+// trusting renderer mouse-event coordinates (which stop arriving if the
+// cursor ever outruns this tiny, constantly-repositioning window).
+let miniDragOrigin = null; // { cursorX, cursorY, winX, winY }
+
+ipcMain.on('window:mini-drag-start', () => {
+  if (!mainWindow || !isMiniMode) return;
+  const cursor = screen.getCursorScreenPoint();
+  const [winX, winY] = mainWindow.getPosition();
+  miniDragOrigin = { cursorX: cursor.x, cursorY: cursor.y, winX, winY };
+});
+
+ipcMain.on('window:mini-drag-move', () => {
+  if (!mainWindow || !miniDragOrigin) return;
+  const cursor = screen.getCursorScreenPoint();
+  mainWindow.setPosition(
+    miniDragOrigin.winX + (cursor.x - miniDragOrigin.cursorX),
+    miniDragOrigin.winY + (cursor.y - miniDragOrigin.cursorY)
+  );
+});
+
+ipcMain.on('window:mini-drag-end', () => {
+  miniDragOrigin = null;
 });
 
 // Ack from the renderer that its shutter has finished closing — commit the

@@ -544,12 +544,7 @@
         border-color: var(--hero-border-lt) var(--hero-border-dk) var(--hero-border-dk) var(--hero-border-lt);
         -webkit-user-select: none;
         user-select: none;
-        /* Lets the user drag the mini HUD anywhere on screen (it no longer
-           has to stay docked to the corner) — this is a native OS window
-           drag, same mechanism as .hero-titlebar-drag below, so it costs no
-           IPC round-trip. A plain click (no movement) still reaches the
-           onclick="heroExitMini()" above it as normal. */
-        -webkit-app-region: drag;
+        touch-action: none;
     }
     body.mini-mode #miniWidget,
     body.mode-anim #miniWidget {
@@ -557,6 +552,11 @@
     }
     #miniWidget:hover { filter: brightness(1.18); }
     #miniWidget:active { filter: brightness(0.95); }
+    /* Applied by hero-chrome.js only once real drag movement is detected
+       (a plain click never gets this class) — see main.js's
+       window:mini-drag-* handlers for why this is a custom JS drag instead
+       of -webkit-app-region:drag. */
+    #miniWidget.dragging { cursor: grabbing; filter: brightness(1.1); }
 
     /* Full-viewport curtain that closes over the content right before the
        native window resize fires, and opens again right after — the
