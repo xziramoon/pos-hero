@@ -31,6 +31,13 @@ let isMiniMode = false;
 let lastFullBounds = null;
 let isTransitioning = false;
 let transitionToken = 0;
+// The "🔄 ตรวจสอบอัปเดต" tray item and the silent background checks (on
+// launch, every 4h) both go through the same autoUpdater — this flag is
+// how the shared event handlers below know whether to actually show a
+// notification. Without it, the manual click looked completely broken
+// whenever the app was already on the latest version: checkForUpdates()
+// resolving to "no update" produced zero visible feedback of any kind.
+let manualUpdateCheck = false;
 
 function getDockedPosition(width, height) {
   const display = screen.getPrimaryDisplay();
@@ -183,6 +190,9 @@ function refreshTrayMenu() {
     { label: '↩️ กลับไปมุมจอ', click: () => dockToCorner() },
     { type: 'separator' },
     { label: '🔄 ตรวจสอบอัปเดต', click: () => {
+      manualUpdateCheck = true;
+      // The 'error' event (below) already shows a notification and covers
+      // a rejected promise too — swallow here instead of duplicating that.
       autoUpdater.checkForUpdates().catch(() => {});
     } },
     { type: 'separator' },
@@ -315,7 +325,30 @@ app.whenReady().then(() => {
   setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 4 * 60 * 60 * 1000);
 });
 
+autoUpdater.on('update-available', (info) => {
+  if (!manualUpdateCheck) return; // background checks stay silent until there's actually a downloaded file to act on
+  manualUpdateCheck = false;
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: '⬇️ พบอัปเดตใหม่ (v' + info.version + ')',
+    body: 'กำลังดาวน์โหลด... จะแจ้งเตือนอีกครั้งเมื่อพร้อมติดตั้ง',
+    icon: path.join(__dirname, 'build', 'icon.ico')
+  }).show();
+});
+
+autoUpdater.on('update-not-available', () => {
+  if (!manualUpdateCheck) return; // only the manual tray click cares to hear "nothing to do"
+  manualUpdateCheck = false;
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: '✅ เป็นเวอร์ชันล่าสุดแล้ว',
+    body: 'ไม่มีอัปเดตใหม่ในขณะนี้ (v' + app.getVersion() + ')',
+    icon: path.join(__dirname, 'build', 'icon.ico')
+  }).show();
+});
+
 autoUpdater.on('update-downloaded', (info) => {
+  manualUpdateCheck = false;
   if (!Notification.isSupported()) return;
   const notif = new Notification({
     title: '🔄 มีอัปเดตใหม่ (v' + info.version + ')',
@@ -331,6 +364,14 @@ autoUpdater.on('update-downloaded', (info) => {
 
 autoUpdater.on('error', (err) => {
   console.error('[autoUpdater]', err == null ? 'unknown error' : (err.stack || err.message || err));
+  if (!manualUpdateCheck) return; // background checks fail silently (retried every 4h anyway); don't nag the user for something they didn't ask about
+  manualUpdateCheck = false;
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: '❌ ตรวจสอบอัปเดตไม่สำเร็จ',
+    body: (err && err.message) || 'ไม่สามารถเชื่อมต่อเพื่อตรวจสอบอัปเดตได้ ลองใหม่อีกครั้ง',
+    icon: path.join(__dirname, 'build', 'icon.ico')
+  }).show();
 });
 
 app.on('window-all-closed', () => {
