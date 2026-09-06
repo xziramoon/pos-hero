@@ -95,6 +95,10 @@ function createWindow() {
     resizable: true,
     skipTaskbar: true,
     show: false,
+    // Nothing in this UI is designed for fullscreen (it's a small
+    // corner-docked widget) — without this, Chromium's default F11 handler
+    // still fires and blows the window up to fill the screen.
+    fullscreenable: false,
     // Matches the amber theme's --hero-bg-1 (the default theme, renderer/theme-hero.css)
     // rather than an arbitrary purple — this is what briefly shows through on the
     // newly-exposed region during a window resize, so it needs to track whatever
@@ -280,6 +284,14 @@ function exitMiniMode() {
 }
 
 app.whenReady().then(() => {
+  // frame:false hides the default menu bar visually, but Electron still
+  // attaches it (and its default accelerators — F11 fullscreen, Ctrl+R
+  // reload, Ctrl+Shift+I devtools, etc.) unless explicitly removed. F11
+  // was blowing this small corner-docked widget up to fill the screen
+  // because of exactly this — fullscreenable:false alone isn't enough to
+  // stop the accelerator from calling setFullScreen().
+  Menu.setApplicationMenu(null);
+
   lastMiniPosition = loadMiniPosition();
   createWindow();
   createTray();
