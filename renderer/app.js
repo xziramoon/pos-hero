@@ -512,18 +512,22 @@
             document.getElementById('m60-price').classList.toggle('active', mode === 'price');
             document.getElementById('m60-money').classList.toggle('active', mode === 'money');
             document.getElementById('m60-topup').classList.toggle('active', mode === 'topup');
+            document.getElementById('m60-exact').classList.toggle('active', mode === 'exact');
             document.querySelectorAll('.mode60-field').forEach(function(el) { el.classList.toggle('show', el.getAttribute('data-field') === mode); });
             var oldPanel = document.querySelector('#calc6040Modal .calc-result-panel');
             if (oldPanel) oldPanel.style.display = (mode === 'price') ? 'block' : 'none';
             var btn = document.getElementById('btnSave6040');
             btn.style.display = (mode === 'price') ? 'block' : 'none';
             recalc60();
-            setTimeout(function() { var focusId = mode === 'price' ? 'c60Price' : mode === 'money' ? 'c60Wallet' : 'c60WantPrice'; var el = document.getElementById(focusId); if (el) el.focus(); }, 100);
+            setTimeout(function() {
+                var focusId = mode === 'price' ? 'c60Price' : mode === 'money' ? 'c60Wallet' : mode === 'topup' ? 'c60WantPrice' : 'c60Remaining';
+                var el = document.getElementById(focusId); if (el) el.focus();
+            }, 100);
         }
         function recalc60() {
             var remaining = parseFloat(document.getElementById('c60Remaining').value);
             if (!isNaN(remaining) && remaining >= 0 && remaining <= 200) { document.getElementById('c60Used').value = 200 - remaining; }
-            if (currentMode60 === 'price') calc60(); else if (currentMode60 === 'money') calcMoney60(); else if (currentMode60 === 'topup') calcTopup60();
+            if (currentMode60 === 'price') calc60(); else if (currentMode60 === 'money') calcMoney60(); else if (currentMode60 === 'topup') calcTopup60(); else if (currentMode60 === 'exact') calcExact60();
             updateQuotaBar60();
         }
         function updateQuotaBar60() {
@@ -569,6 +573,36 @@
             if (topupNeed <= 0) { alertBox.className = 'alert60 ok show'; alertIcon.textContent = '✅'; alertMsg.textContent = 'ไม่ต้องเติมเพิ่ม! เงินที่มีพอจ่ายแล้ว'; }
             else if (govHelp >= Q) { alertBox.className = 'alert60 warn show'; alertIcon.textContent = '⚠️'; alertMsg.textContent = 'สิทธิตันแล้ว รัฐช่วยได้แค่ ' + fmt60(govHelp) + ' บาท'; }
             else { alertBox.className = 'alert60'; }
+        }
+        // โหมด "ใช้สิทธิพอดี" — ลูกค้าเติมเงินเป๋าตังไว้เยอะแต่ไม่อยากใช้ อยากรู้ราคาสินค้า
+        // ขั้นต่ำที่ดึงสิทธิรัฐที่เหลือ (Q) ออกมาใช้ให้หมดพอดี โดยจ่ายผ่านเป๋าตังน้อยที่สุด
+        // เท่าที่เป็นไปได้ (govHelp ถูกตรึงที่ Q ทันทีที่ price >= Q/0.6 จุดนั้นคือราคาขั้นต่ำ)
+        function calcExact60() {
+            var used = Math.max(0, Math.min(200, parseFloat(document.getElementById('c60Used').value) || 0));
+            var Q = 200 - used;
+            var alertBox = document.getElementById('c60Alert'), alertMsg = document.getElementById('c60AlertMsg'), alertIcon = document.getElementById('c60AlertIcon');
+            if (Q <= 0) {
+                document.getElementById('c60ExactPrice').textContent = '0.00 ฿';
+                document.getElementById('c60ExactSub').textContent = 'สิทธิวันนี้หมดแล้ว ไม่ต้องผ่านระบบนี้ จ่ายด้วยเงินสด/โอนปกติได้เลย';
+                alertBox.className = 'alert60';
+                return;
+            }
+            var custMin = Q * (0.4 / 0.6);
+            var priceMin = Q + custMin;
+            document.getElementById('c60ExactPrice').textContent = fmt60(priceMin) + ' ฿';
+            document.getElementById('c60ExactSub').textContent = 'รัฐช่วย ' + fmt60(Q) + ' + จ่ายเอง (พช) ขั้นต่ำ ' + fmt60(custMin) + ' = ราคาขั้นต่ำ ' + fmt60(priceMin) + ' บาท';
+            alertBox.className = 'alert60 ok show';
+            alertIcon.textContent = '🎯';
+            alertMsg.textContent = 'เลือกของราคา ' + fmt60(priceMin) + ' บาทขึ้นไป แล้วกด "ใช้ราคานี้" ด้านล่าง จะดึงสิทธิที่เหลือออกมาใช้หมดพอดี จ่ายผ่านเป๋าตังแค่ ' + fmt60(custMin) + ' บาท — ถ้าอยากได้ของแพงกว่านี้ ส่วนเกินจ่ายแยกด้วยเงินสด/โอนปกติได้เลย ไม่ต้องผ่านเป๋าตังเพิ่ม';
+        }
+        function useExactPrice60() {
+            var used = Math.max(0, Math.min(200, parseFloat(document.getElementById('c60Used').value) || 0));
+            var Q = 200 - used;
+            if (Q <= 0) return;
+            var priceMin = Q + Q * (0.4 / 0.6);
+            setMode60('price');
+            document.getElementById('c60Price').value = priceMin.toFixed(2);
+            calc60();
         }
         function calc60() {
             var price = parseFloat(document.getElementById('c60Price').value) || 0;

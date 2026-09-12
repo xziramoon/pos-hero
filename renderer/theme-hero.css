@@ -19,6 +19,16 @@
     font-display: swap;
 }
 
+/* Typed custom properties so the "รุ้ง RGB วิบวับ" theme below can animate
+   them directly with @keyframes — every var(--hero-border-lt) / var(--hero-
+   gold-bright) / var(--hero-glow) usage across the app (borders, bright
+   text, glows) then shimmers automatically with no per-rule changes.
+   initial-value matches the default amber theme so registering these has
+   no effect on any other theme. */
+@property --hero-border-lt { syntax: '<color>'; inherits: true; initial-value: #ffe27a; }
+@property --hero-gold-bright { syntax: '<color>'; inherits: true; initial-value: #ffe27a; }
+@property --hero-glow { syntax: '<color>'; inherits: true; initial-value: rgba(246, 196, 83, 0.35); }
+
 @media screen {
 
     :root {
@@ -143,6 +153,55 @@
         --red60: #f87171; --red60-bg: rgba(248,113,113,0.14);
         --amber60: #fbbf24; --amber60-bg: rgba(251,191,36,0.14);
         --cyan-recon: #22d3ee; --cyan-recon-bg: rgba(34,211,238,0.14);
+    }
+
+    /* ===== "ชมพูสดใส" (Vivid Pink) ===== */
+    :root[data-theme="pink"] {
+        --hero-bg-1: #1a0714; --hero-bg-2: #2a0f22;
+        --hero-panel: #34112b; --hero-panel-2: #240c1e; --hero-panel-3: #1c0917;
+        --hero-border-lt: #ff8fd8; --hero-border-dk: #7a1458;
+        --hero-gold: #ff4fc3; --hero-gold-bright: #ff8fd8;
+        --hero-text: #fff0fa; --hero-text-dim: #f3c6e6; --hero-text-faint: #c98ab0;
+        --hero-active-1: #be185d; --hero-active-2: #ec4899;
+        --hero-glow: rgba(236, 72, 153, 0.4);
+        --hero-radial-1: rgba(219, 39, 119, 0.24); --hero-radial-2: rgba(255, 143, 216, 0.12);
+        --primary: #f472b6; --success: #34d399; --info: #38bdf8; --danger: #f87171; --warning: #fbbf24; --purple: #d946ef;
+        --green60: #4ade80; --green60-bg: rgba(74,222,128,0.14); --green60-light: rgba(74,222,128,0.4);
+        --red60: #f87171; --red60-bg: rgba(248,113,113,0.14);
+        --amber60: #fbbf24; --amber60-bg: rgba(251,191,36,0.14);
+        --cyan-recon: #22d3ee; --cyan-recon-bg: rgba(34,211,238,0.14);
+    }
+
+    /* ===== "รุ้ง RGB วิบวับ" (Shimmering RGB Rainbow) — border/glow/bright-text
+       cycle through the spectrum via the @property-typed vars above; the
+       base panel stays a neutral near-black "gaming rig" backdrop so text
+       stays legible and semantic colors (success/danger/warning) are left
+       untouched so row meaning doesn't get lost in the shimmer. ===== */
+    :root[data-theme="rainbow"] {
+        --hero-bg-1: #0a0a10; --hero-bg-2: #121218;
+        --hero-panel: #17171f; --hero-panel-2: #111118; --hero-panel-3: #0d0d12;
+        --hero-border-lt: #ff3b6e; --hero-border-dk: #2e2e3d;
+        --hero-gold: #e8e8f5; --hero-gold-bright: #ff3b6e;
+        --hero-text: #f5f5ff; --hero-text-dim: #c9c9dc; --hero-text-faint: #85859c;
+        --hero-active-1: #4c1d95; --hero-active-2: #7c3aed;
+        --hero-glow: rgba(255, 59, 110, 0.4);
+        --hero-radial-1: rgba(124, 58, 237, 0.22); --hero-radial-2: rgba(255, 255, 255, 0.08);
+        --primary: #a78bfa; --success: #34d399; --info: #38bdf8; --danger: #f87171; --warning: #fbbf24; --purple: #d946ef;
+        --green60: #4ade80; --green60-bg: rgba(74,222,128,0.14); --green60-light: rgba(74,222,128,0.4);
+        --red60: #f87171; --red60-bg: rgba(248,113,113,0.14);
+        --amber60: #fbbf24; --amber60-bg: rgba(251,191,36,0.14);
+        --cyan-recon: #22d3ee; --cyan-recon-bg: rgba(34,211,238,0.14);
+        animation: hero-rainbow-hue 6s linear infinite;
+    }
+    @keyframes hero-rainbow-hue {
+        0%   { --hero-border-lt: #ff3b6e; --hero-gold-bright: #ff3b6e; --hero-glow: rgba(255,59,110,0.4); }
+        14%  { --hero-border-lt: #ff9d3b; --hero-gold-bright: #ff9d3b; --hero-glow: rgba(255,157,59,0.4); }
+        28%  { --hero-border-lt: #f4ff3b; --hero-gold-bright: #f4ff3b; --hero-glow: rgba(244,255,59,0.4); }
+        42%  { --hero-border-lt: #3bff6a; --hero-gold-bright: #3bff6a; --hero-glow: rgba(59,255,106,0.4); }
+        57%  { --hero-border-lt: #3bd4ff; --hero-gold-bright: #3bd4ff; --hero-glow: rgba(59,212,255,0.4); }
+        71%  { --hero-border-lt: #6a3bff; --hero-gold-bright: #6a3bff; --hero-glow: rgba(106,59,255,0.4); }
+        85%  { --hero-border-lt: #ff3bea; --hero-gold-bright: #ff3bea; --hero-glow: rgba(255,59,234,0.4); }
+        100% { --hero-border-lt: #ff3b6e; --hero-gold-bright: #ff3b6e; --hero-glow: rgba(255,59,110,0.4); }
     }
 
     html, body { height: 100%; }
@@ -841,6 +900,16 @@
     .theme-preview-navy { background: linear-gradient(135deg, #101f3d, #060b18 60%, #3b82f6); }
     .theme-preview-ember { background: linear-gradient(135deg, #2a130c, #170805 60%, #ef4444); }
     .theme-preview-slate { background: linear-gradient(135deg, #171a1f, #0b0d10 60%, #64748b); }
+    .theme-preview-pink { background: linear-gradient(135deg, #34112b, #1a0714 60%, #ec4899); }
+    .theme-preview-rainbow {
+        background: linear-gradient(90deg, #ff3b6e, #ff9d3b, #f4ff3b, #3bff6a, #3bd4ff, #6a3bff, #ff3bea, #ff3b6e);
+        background-size: 300% 100%;
+        animation: hero-rainbow-preview-shift 4s linear infinite;
+    }
+    @keyframes hero-rainbow-preview-shift {
+        from { background-position: 0% 50%; }
+        to   { background-position: 300% 50%; }
+    }
 
     /* ---------------------------------------------------------------
        Print font-size zoom control (in the theme modal) — see

@@ -293,6 +293,14 @@
                     <div class="theme-swatch-preview theme-preview-slate"><span class="theme-swatch-check">✓</span></div>
                     <div class="theme-swatch-label">เทาเงาราตรี</div>
                 </div>
+                <div class="theme-swatch" data-theme="pink" onclick="selectTheme('pink')">
+                    <div class="theme-swatch-preview theme-preview-pink"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">ชมพูสดใส</div>
+                </div>
+                <div class="theme-swatch" data-theme="rainbow" onclick="selectTheme('rainbow')">
+                    <div class="theme-swatch-preview theme-preview-rainbow"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">รุ้ง RGB วิบวับ</div>
+                </div>
             </div>
 
             <!-- ขนาดตัวอักษรตอนพิมพ์ใบเสร็จ — ปรับได้เอง ไม่ต้องรอแก้โค้ด
@@ -325,6 +333,7 @@
                     <div class="mode60-tab active" id="m60-price" onclick="setMode60('price')"><span class="m60-ico">📦</span>จากราคาสินค้า</div>
                     <div class="mode60-tab" id="m60-money" onclick="setMode60('money')"><span class="m60-ico">💰</span>มีเงินเท่านี้</div>
                     <div class="mode60-tab" id="m60-topup" onclick="setMode60('topup')"><span class="m60-ico">➕</span>อยากได้ของ</div>
+                    <div class="mode60-tab" id="m60-exact" onclick="setMode60('exact')"><span class="m60-ico">🎯</span>ใช้สิทธิพอดี</div>
                 </div>
 
                 <!-- โหมด 1: ราคาสินค้า (เดิม) -->
@@ -355,6 +364,12 @@
                     <div class="calc-input-wrap"><input type="number" id="c60HavePrice" inputmode="decimal" placeholder="0" min="0" oninput="recalc60()"><span class="calc-input-unit">฿</span></div>
                 </div>
 
+                <!-- ✨ โหมด 4: ใช้สิทธิพอดี — ลูกค้ามีเงินในเป๋าตังเยอะแต่ไม่อยากใช้ อยากรู้ราคาขั้นต่ำที่ดึงสิทธิรัฐที่เหลือออกมาใช้ให้หมด โดยจ่ายผ่านเป๋าตังน้อยที่สุด -->
+                <div class="mode60-field" data-field="exact">
+                    <div class="calc-input-label"><span>🎯 ใช้สิทธิที่เหลือให้หมดพอดี</span><span class="sub">ไม่อยากดึงเงินในเป๋าตังเพิ่ม</span></div>
+                    <div class="hint-box">กรอก "ยอดเงินที่เหลือของผู้ใช้ (พช)" ด้านล่าง ระบบจะคำนวณราคาสินค้าขั้นต่ำที่ใช้สิทธิรัฐหมดพอดีให้ — ของที่แพงกว่านั้นให้จ่ายส่วนเกินด้วยเงินสด/โอนปกติแยกต่างหาก ไม่ต้องผ่านเป๋าตัง</div>
+                </div>
+
                 <!-- BAKA YUKE v2: เปลี่ยน label เป็น 'ยอดเงินที่เหลือของผู้ใช้' + ช่องกรอก -->
                 <div class="calc-input-label"><span>💳 ยอดเงินที่เหลือของผู้ใช้ ( พช )</span><span class="sub">ดูจากแอปเป๋าตัง → ยอดคงเหลือ</span></div>
                 <div class="calc-input-wrap"><input type="number" id="c60Remaining" inputmode="decimal" placeholder="0" min="0" max="200" oninput="recalc60()"><span class="calc-input-unit">฿</span></div>
@@ -379,6 +394,15 @@
                     <div class="ba-label">➕ ต้องเติมเงินเข้าเป๋าตังอีก</div>
                     <div class="ba-value" id="c60TopupAmt2">0.00 ฿</div>
                     <div class="ba-sub" id="c60TopupSub2"></div>
+                </div>
+
+                <!-- ✨ กล่องคำตอบใหญ่: โหมด "ใช้สิทธิพอดี" — ลูกค้าเติมเงินเป๋าตังไว้เยอะแต่ไม่อยากใช้
+                     ราคาขั้นต่ำนี้คือจุดที่รัฐช่วยเต็มสิทธิที่เหลือพอดี โดยดึงเงินจากเป๋าตังลูกค้าน้อยที่สุดเท่าที่เป็นไปได้ -->
+                <div class="big-answer mode60-field" data-field="exact" id="c60ExactBox">
+                    <div class="ba-label">🎯 ราคาขั้นต่ำ ใช้สิทธิเต็มพอดี (ดึงเป๋าตังน้อยสุด)</div>
+                    <div class="ba-value" id="c60ExactPrice">0.00 ฿</div>
+                    <div class="ba-sub" id="c60ExactSub"></div>
+                    <button class="btn-save-60" style="background: var(--primary, #2563eb); margin-top: 10px;" onclick="useExactPrice60()">ใช้ราคานี้ → ไปหน้าบันทึก</button>
                 </div>
 
                 <div class="calc-result-panel">
