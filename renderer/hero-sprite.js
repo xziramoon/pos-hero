@@ -2,7 +2,7 @@
 //
 // อ่านเฟรมจาก renderer/assets/sprite-hero.png (สร้างจาก build/make-hero-sprite.js)
 // ครอบ window.celebrateTransaction ที่ hero-chrome.js ประกาศไว้ และฟัง
-// #miniPbLed เพื่อสลับท่าพื้นฐานตามสถานะ Pushbullet — ไม่แตะ renderer/app.js
+// #miniPbLed เพื่อสลับท่าพื้นฐานตามสถานะการเชื่อมต่อมือถือ (relay) — ไม่แตะ renderer/app.js
 
 (function () {
     var SCALE = 2;
@@ -168,7 +168,7 @@
     }
 
     // -----------------------------------------------------------
-    // สถานะ Pushbullet: #miniPbLed มี class ok/warn/err — err = หลับ
+    // สถานะการเชื่อมต่อมือถือ (relay): #miniPbLed มี class ok/warn/err — err = หลับ
     // -----------------------------------------------------------
     function syncPbState() {
         var led = document.getElementById('miniPbLed');

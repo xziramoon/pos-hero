@@ -23,7 +23,7 @@
          Hidden by default; renderer/hero-chrome.js toggles body.mini-mode based
          on main.js's mode-changed IPC and swaps this in instead of hiding entirely. -->
     <div id="miniWidget" class="no-print" title="คลิกเพื่อขยายเต็มจอ (ลากเพื่อย้ายตำแหน่ง)">
-        <span class="mini-pb-led" id="miniPbLed" title="สถานะ Pushbullet"></span>
+        <span class="mini-pb-led" id="miniPbLed" title="สถานะมือถือ"></span>
         <span class="mini-expand-hint">⤢</span>
         <div class="mini-coin"></div>
         <div class="mini-info">
@@ -45,7 +45,7 @@
             <span class="hero-coin">🪙</span>
             <span class="hero-title-text">POS HERO</span>
             <span class="hero-subtitle">TASKBAR RECON WIDGET</span>
-            <span class="pb-led" id="pbLed" title="สถานะ Pushbullet"></span>
+            <span class="pb-led" id="pbLed" title="สถานะมือถือ"></span>
         </div>
         <div class="hero-titlebar-btns">
             <button class="hero-tbtn" id="btnTheme" title="เปลี่ยนธีมสี" onclick="openThemeModal()">🎨</button>
@@ -189,22 +189,19 @@
             </div>
 
 
-            <!-- Pushbullet Auto-Fill -->
+            <!-- มือถือดักแจ้งเตือน (LAN Relay) — แทนที่ Pushbullet -->
             <div class="pb-box">
                 <div style="font-weight:800; color: var(--purple); margin-bottom:8px; font-size:14px;">
-                    🔗 Pushbullet — ดักแจ้งเตือนอัตโนมัติ
+                    📱 มือถือดักแจ้งเตือน — ดักจับเอง (ไม่ผ่าน Pushbullet)
                 </div>
                 <div style="font-size:11px; color:#666; margin-bottom:8px;">
                     รองรับ: SCB, K PLUS, Krungsri, Bangkok Bank, TrueMoney, เป๋าตัง
                 </div>
-                <input type="password" id="pbToken" class="pb-token" placeholder="ใส่ Pushbullet Access Token (ขึ้นต้น o.)..." onchange="localStorage.setItem('pbToken',this.value)">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
-                    <span id="pbStatus" class="pb-status">⏸️ ยังไม่เชื่อมต่อ</span>
-                    <span style="font-size:10px; color:#aaa;">เชื่อมต่อเมื่อเปิดหน้านี้</span>
+                    <span id="pbStatus" class="pb-status">⏸️ รอมือถือเชื่อมต่อครั้งแรก</span>
                 </div>
                 <div class="pb-btns">
-                    <button class="pb-btn" style="background: var(--purple);" onclick="connectPushbullet()">🟢 เชื่อมต่อ</button>
-                    <button class="pb-btn" style="background: #64748b;" onclick="disconnectPushbullet()">🔴 ตัดการเชื่อมต่อ</button>
+                    <button class="pb-btn" style="background: var(--purple);" onclick="showRelayInfo()">📶 ดูข้อมูลเชื่อมต่อ (IP/Token)</button>
                 </div>
                 <div id="pbLog"><div class="pb-i">รอการเชื่อมต่อ...</div></div>
                 <div style="display:flex; align-items:center; gap:6px; margin:8px 0; font-size:12px; color:#444;">
@@ -225,10 +222,10 @@
                     <div style="font-size:10px; color:#888; margin-top:4px;">* กระทบยอด = ใส่ยอดเข้าช่องกระทบยอดโอนด้วย (แยกบัญชี 1/2/เป๋าตังตามแหล่งที่มา)</div>
                 </div>
                 <div class="hint-box" style="margin-top:8px; font-size:11px;">
-                    💡 วิธีใช้: ไปที่ pushbullet.com → Settings → Account → Create Access Token → เอามาใส่ช่องด้านบน
+                    💡 วิธีใช้: ติดตั้งแอป "POS Relay" บนมือถือ (android-app) แล้วกด "📶 ดูข้อมูลเชื่อมต่อ" ด้านบนเพื่อเอา IP/Token ไปตั้งค่าในแอปมือถือ
                 </div>
                 <div class="hint-box" style="margin-top:8px; font-size:11px; border-left-color: var(--danger);">
-                    ⚠️ กันพลาดยอด: มือถือต้องเปิดแอป Pushbullet ค้างไว้ + <b>ปิด "การจัดการแบตเตอรี่ / จำกัดพื้นหลัง"</b> (Battery optimization) สำหรับแอป Pushbullet ในมือถือด้วย ไม่งั้น Android จะฆ่าแอปทิ้งเงียบๆ เมื่อไม่ได้ใช้นาน ทำให้ mirror แจ้งเตือนธนาคารไม่ถูกส่งมาที่เครื่องนี้เลย
+                    ⚠️ กันพลาดยอด: มือถือต้องเปิดแอป "POS Relay" ค้างไว้ + <b>ปิด "การจัดการแบตเตอรี่ / จำกัดพื้นหลัง"</b> (Battery optimization) สำหรับแอปนั้นด้วย ไม่งั้น Android จะฆ่าแอปทิ้งเงียบๆ เมื่อไม่ได้ใช้นาน ทำให้แจ้งเตือนธนาคารไม่ถูกส่งมาที่เครื่องนี้เลย
                 </div>
             </div>
 

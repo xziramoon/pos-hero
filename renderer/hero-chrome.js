@@ -8,8 +8,8 @@
 
     // ---------------------------------------------------------------
     // Feedback animations for "saved" (manual entry) vs. "money in"
-    // (auto-detected via Pushbullet) — pure visual polish, called from
-    // app.js's saveRecord / pbInject / apply6040ToPOS.
+    // (auto-detected via the phone-notification relay) — pure visual polish,
+    // called from app.js's saveRecord / injectPaymentEvent / apply6040ToPOS.
     //
     // Declared before the mini-mode block below since that block also
     // relies on restartAnim (function declarations are hoisted, but

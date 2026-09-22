@@ -390,7 +390,7 @@
         // ==========================================
         // ส่วนที่ 9: กระทบยอดเงินดิจิทัล (Reconciliation)
         // ==========================================
-        // [FIX #12] ค่าที่กรอกในช่องกระทบยอด (รวมถึงยอดที่ Pushbullet เติมให้อัตโนมัติ)
+        // [FIX #12] ค่าที่กรอกในช่องกระทบยอด (รวมถึงยอดที่มือถือเติมให้อัตโนมัติผ่าน relay)
         // ไม่เคยถูกบันทึกไว้ที่ไหนเลย พอปิด/เปิด Modal ใหม่ค่าที่เคยเติมไว้เลยหายหมด
         // → บันทึกลง localStorage ทุกครั้งที่มีการคำนวณ แล้วโหลดกลับมาตอนเปิด Modal (เฉพาะวันเดียวกัน)
         function saveReconInputs() {
@@ -422,8 +422,6 @@
             document.getElementById('reconPaotang').value = saved ? saved.paotang : '';
             calcRecon();
             document.getElementById('reconModal').style.display = 'flex';
-            // [FIX #5] ออโต้คอนเน็กต์ WebSocket เมื่อเปิด Modal กระทบยอด
-            if (pbToken && !pbWs) { setTimeout(connectPushbullet, 400); }
         }
         function closeReconModal() { document.getElementById('reconModal').style.display = 'none'; }
 
@@ -645,44 +643,25 @@
         }
 
         // ==========================================
-        // ส่วนที่ 11: 🛡️ PUSHBULLET WEBSOCKET — Fixed Version
-        // [FIX #6] รวมระบบทั้งหมดในที่เดียว + แก้ WebSocket heartbeat + reconnect เร็วขึ้น
+        // ส่วนที่ 11: 📱 มือถือดักแจ้งเตือน (LAN Relay) — แทนที่ Pushbullet
         // ==========================================
-        let pbWs = null;
-        let pbToken = localStorage.getItem('pbToken') || '';
-        let pbReconnectTimer = null;
-        let pbDisconnectStart = 0; // [FIX] บันทึกเวลาที่ disconnect
-        let pbLastActivity = 0; // [FIX #13] เวลาล่าสุดที่ได้รับข้อความใดๆ จาก Pushbullet (รวม nop)
-        let pbLastWarnAt = 0; // เวลาล่าสุดที่เด้ง notification เตือนหลุดการเชื่อมต่อ (กันสแปม)
+        // android-app/ (โปรเจกต์แยก คนละ repo — ดู README ของมันเอง) พาร์สแจ้งเตือนธนาคาร/วอลเล็ต
+        // บนตัวมือถือเอง แล้ว POST เฉพาะ payment event ที่เป็นโครงสร้างชัดเจน (amount/source/เวลา —
+        // ไม่มีข้อความแจ้งเตือนดิบ ไม่มีชื่อผู้โอน) มาที่ relay server ที่ embed อยู่ใน main.js ของ
+        // แอปนี้เอง (ดู main.js's startRelayServer()) จากนั้น main process ส่งต่อมาที่นี่ผ่าน IPC —
+        // ไม่มี WebSocket ให้ต่อ/reconnect อีกต่อไป ฝั่งนี้แค่ "รับฟัง" event ที่ validate มาแล้ว
 
-        // [BACKFILL] dedup ถาวรด้วย push.iden — กันนับซ้ำระหว่าง realtime WS กับ poll backfill
-        // (ต่างจาก signature 3 วิใน pbInject ที่ออกแบบมากันแค่ push/mirror เด้งซ้อนกันตอนเดียว)
-        var _pbProcessedIdens = (function() {
-            try { return JSON.parse(localStorage.getItem('pbProcessedIdens')) || []; } catch(e) { return []; }
+        // dedup ฝั่ง client เป็นเกราะสำรอง (server ฝั่ง main.js dedupe ด้วย event_id เป็นหลักอยู่แล้ว)
+        var _seenPaymentEventIds = (function() {
+            try { return JSON.parse(localStorage.getItem('seenPaymentEventIds')) || []; } catch(e) { return []; }
         })();
-        function isPushProcessed(iden) { return !!iden && _pbProcessedIdens.indexOf(iden) > -1; }
-        function markPushProcessed(iden) {
-            if (!iden) return;
-            _pbProcessedIdens.push(iden);
-            if (_pbProcessedIdens.length > 500) _pbProcessedIdens = _pbProcessedIdens.slice(-500);
-            localStorage.setItem('pbProcessedIdens', JSON.stringify(_pbProcessedIdens));
+        function isPaymentEventProcessed(eventId) { return !!eventId && _seenPaymentEventIds.indexOf(eventId) > -1; }
+        function markPaymentEventProcessed(eventId) {
+            if (!eventId) return;
+            _seenPaymentEventIds.push(eventId);
+            if (_seenPaymentEventIds.length > 500) _seenPaymentEventIds = _seenPaymentEventIds.slice(-500);
+            localStorage.setItem('seenPaymentEventIds', JSON.stringify(_seenPaymentEventIds));
         }
-
-        // [FIX #6] ตัวแปรสำหรับ debounce + dedup
-        let _pbInjectQueue = [];
-        let _pbInjectProcessing = false;
-        window._lastPbSig = "";
-        window._lastPbTime = 0;
-
-        // โหลด token + config ที่เคยบันทึกไว้ + auto-connect ทันทีถ้ามี token
-        // (เดิมเชื่อมต่อก็ต่อเมื่อเปิด Modal กระทบยอดครั้งแรกของเซสชันเท่านั้น —
-        // ทำให้ไฟสถานะ Pushbullet ค้างเทาไปเรื่อยๆ ถ้าไม่เคยเปิด modal นั้นเลย)
-        document.addEventListener('DOMContentLoaded', function() {
-            const t = document.getElementById('pbToken');
-            if (t && pbToken) t.value = pbToken;
-            loadPbConfig();
-            if (pbToken) connectPushbullet();
-        });
 
         function setPbStatus(html, cls) {
             const el = document.getElementById('pbStatus');
@@ -695,9 +674,9 @@
             // opening the reconciliation modal that #pbStatus lives in.
             const plainText = html.replace(/<[^>]*>/g, '');
             const led = document.getElementById('pbLed');
-            if (led) { led.className = 'pb-led ' + (cls || ''); led.title = 'Pushbullet: ' + plainText; }
+            if (led) { led.className = 'pb-led ' + (cls || ''); led.title = 'มือถือ: ' + plainText; }
             const miniLed = document.getElementById('miniPbLed');
-            if (miniLed) { miniLed.className = 'mini-pb-led ' + (cls || ''); miniLed.title = 'Pushbullet: ' + plainText; }
+            if (miniLed) { miniLed.className = 'mini-pb-led ' + (cls || ''); miniLed.title = 'มือถือ: ' + plainText; }
         }
 
         function pbLog(msg, type) {
@@ -713,7 +692,7 @@
         }
 
         // ==========================================
-        // ⚙️ CONFIG: ปรับแต่ง mapping แหล่งที่มา → ประเภท POS
+        // ⚙️ CONFIG: ปรับแต่ง mapping แหล่งที่มา → ประเภท POS (ไม่เกี่ยวกับ Pushbullet — คงเดิมทั้งหมด)
         // ==========================================
         function savePbConfig() {
             const cfg = {
@@ -749,287 +728,44 @@
             return { bank: 'transfer', paotang: 'thaiplus', maemanee: 'transfer', fallback: 'transfer', reconBank: true, reconPaotang: false, reconMaemanee: false, reconFallback: true };
         }
 
-        // ==========================================
-        // [FIX #6] WebSocket Connection + Heartbeat + Reconnect
-        // ==========================================
-        function connectPushbullet() {
-            const input = document.getElementById('pbToken');
-            pbToken = (input ? input.value : '').trim();
-            if (!pbToken) { alert('⚠️ กรุณาใส่ Pushbullet Access Token'); return; }
-            if (!pbToken.startsWith('o.')) { alert('⚠️ Token ต้องขึ้นต้นด้วย o.'); return; }
-            localStorage.setItem('pbToken', pbToken);
-            disconnectPushbullet();
-            setPbStatus('🟡 กำลังเชื่อมต่อ...', 'warn');
-
-            try {
-                pbWs = new WebSocket('wss://stream.pushbullet.com/websocket/' + pbToken);
-
-                pbWs.onopen = function() {
-                    pbDisconnectStart = 0; // [FIX] รีเซ็ตเวลา disconnect
-                    pbLastWarnAt = 0;
-                    pbLastActivity = Date.now();
-                    setPbStatus('🟢 เชื่อมต่อแล้ว (รอแจ้งเตือน)', 'ok');
-                    pbLog('เชื่อมต่อสำเร็จ รอรับ push...', 'i');
-                    // [BACKFILL] จังหวะเพิ่งต่อ WS สำเร็จ มักตรงกับตอนมือถือเพิ่งตื่นจาก
-                    // Doze/background throttling แล้ว flush queue แจ้งเตือนที่ค้างไป Pushbullet
-                    // พอดี → เช็คย้อนหลังทันทีแทนที่จะรอรอบ interval ถัดไป
-                    pollMissedPushes();
-                };
-
-                pbWs.onmessage = function(ev) {
-                    pbLastActivity = Date.now(); // [FIX #13] ทุกข้อความที่เข้ามา (รวม nop) คือสัญญาณว่า socket ยังมีชีวิต
-                    try {
-                        const data = JSON.parse(ev.data);
-                        if (data.type) { pbLog('[RAW] type=' + data.type, 'i'); }
-                        let pushObj = null;
-                        if (data.type === 'push' && data.push) { pushObj = data.push; }
-                        else if (data.type === 'mirror' && data.push) { pushObj = data.push; }
-                        else if (data.title || data.body) { pushObj = data; }
-                        if (pushObj) {
-                            pbLog('[RECV] ' + (pushObj.title || '').substring(0,30) + '...', 'i');
-                            handlePbPush(pushObj);
-                        }
-                    } catch(e) { pbLog('[ERR] parse: ' + e.message, 'e'); }
-                };
-
-                pbWs.onclose = function() {
-                    pbWs = null;
-                    pbDisconnectStart = Date.now(); // [FIX] บันทึกเวลาตัดการเชื่อมต่อ
-                    setPbStatus('🔴 ตัดการเชื่อมต่อ', 'err');
-                    schedulePbReconnect();
-                };
-
-                pbWs.onerror = function(err) {
-                    setPbStatus('❌ เชื่อมต่อล้มเหลว', 'err');
-                    pbLog('ตรวจสอบ Token หรือเน็ต', 'e');
-                    pbWs = null;
-                    pbDisconnectStart = Date.now(); // [FIX] บันทึกเวลาตัดการเชื่อมต่อ
-                    schedulePbReconnect();
-                };
-
-            } catch(e) { alert('เชื่อมต่อไม่ได้: ' + e.message); }
-        }
-
-        function disconnectPushbullet() {
-            if (pbReconnectTimer) { clearTimeout(pbReconnectTimer); pbReconnectTimer = null; }
-            if (pbWs) { pbWs.close(); pbWs = null; }
-            setPbStatus('⏸️ ยังไม่เชื่อมต่อ', '');
-            pbLog('ตัดการเชื่อมต่อแล้ว', 'i');
-        }
-
-        function schedulePbReconnect() {
-            if (pbReconnectTimer) clearTimeout(pbReconnectTimer);
-            pbReconnectTimer = setTimeout(function() {
-                if (!pbWs && pbToken) {
-                    pbLog('🔄 พยายามเชื่อมต่อใหม่...', 'w');
-                    connectPushbullet();
-                }
-            }, 3000); // [FIX] ลดจาก 8 วินาที → 3 วินาที เพื่อ reconnect เร็วขึ้น
-        }
-
-        // [FIX #13] Pushbullet Realtime Event Stream เป็นช่องทางเดียว (server → client เท่านั้น)
-        // ไม่มี client protocol ให้ส่งอะไรกลับ — เซิร์ฟเวอร์เองส่ง nop คงสถานะทุก ~30 วิอยู่แล้ว
-        // เดิมโค้ดยิง send() เฟรมที่ไม่ตรงสเปกทุก 25 วิ ("heartbeat") ซึ่งไม่ช่วยอะไรและเสี่ยงโดน
-        // เซิร์ฟเวอร์ตัดการเชื่อมต่อเองเพราะได้รับข้อมูลที่ไม่รู้จัก → เอาออก ใช้ nop ที่เซิร์ฟเวอร์ส่งมา
-        // (จับเวลาไว้ใน pbLastActivity ทุกครั้งที่ onmessage ทำงาน) เป็นตัวจับชีพจรแทน
-
-        // [FIX #6/#13] ตรวจสอบสถานะ WebSocket ทุก 10 วินาที
-        setInterval(function() {
-            if (pbWs && pbWs.readyState === WebSocket.OPEN && pbLastActivity && (Date.now() - pbLastActivity) > 35000) {
-                // readyState ยังโชว์ OPEN แต่ไม่มีสัญญาณ (แม้แต่ nop) เข้ามาเลยเกิน 35 วิ = socket ค้างเงียบๆ
-                pbLog('🔴 ไม่มีสัญญาณจาก Pushbullet นานเกิน 35 วินาที → ตัดแล้วเชื่อมต่อใหม่', 'e');
-                pbWs.close();
-            } else if (pbToken && !pbWs && pbDisconnectStart && (Date.now() - pbDisconnectStart) > 30000) {
-                pbLog('🔴 Warning: ไม่ได้ยินเตือนนานเกิน 30 วินาที! ตรวจสอบ Pushbullet', 'e');
-                // เด้ง native notification เตือน (ซ้ำได้ทุก 5 นาทีถ้ายังหลุดต่อเนื่อง) เพราะ pbLog
-                // จะไม่มีใครเห็นเลยตอนหน้าต่างถูกย่อ/ซ่อนอยู่ใน tray
-                if (window.heroWindow && window.heroWindow.notifyPbDisconnected && (Date.now() - pbLastWarnAt) > 5 * 60 * 1000) {
-                    pbLastWarnAt = Date.now();
-                    window.heroWindow.notifyPbDisconnected(Math.round((Date.now() - pbDisconnectStart) / 60000));
-                }
-            }
-        }, 10000);
-
-        // [FIX #11] มือถือ/แท็บเล็ตจะ "หรี่" ปิด setInterval/WebSocket เมื่อสลับแอปหรือดับหน้าจอ
-        // ทำให้การเชื่อมต่อหลุดเงียบๆ โดยไม่มี event onclose มาสั่ง reconnect
-        // → บังคับเชื่อมต่อใหม่ทันทีเมื่อกลับมาเปิดหน้าจอ/สลับกลับมาที่แท็บนี้
-        document.addEventListener('visibilitychange', function() {
-            if (document.visibilityState === 'visible' && pbToken) {
-                if (!pbWs || pbWs.readyState !== WebSocket.OPEN) {
-                    pbLog('👁️ กลับมาที่หน้าจอ → เชื่อมต่อ Pushbullet ใหม่', 'w');
-                    connectPushbullet();
-                }
-            }
+        document.addEventListener('DOMContentLoaded', function() {
+            loadPbConfig();
+            setPbStatus('⏸️ รอมือถือเชื่อมต่อครั้งแรก', '');
         });
 
-        // เครื่องหลับ/ล็อกหน้าจอเป็นจุดที่ WebSocket หลุดเงียบๆ บ่อยที่สุด (บางครั้ง onclose
-        // ไม่ยิงทันทีตอนตื่นเครื่อง) → main process จะสั่งบังคับเชื่อมต่อใหม่ทันทีที่ตื่น/ปลดล็อก
-        if (window.heroWindow && window.heroWindow.onForceReconnect) {
-            window.heroWindow.onForceReconnect(function() {
-                if (!pbToken) return;
-                pbLog('🔌 เครื่องกลับมาทำงาน (resume/unlock) → บังคับเชื่อมต่อ Pushbullet ใหม่', 'w');
-                disconnectPushbullet();
-                connectPushbullet();
-                // [BACKFILL] เผื่อมีแจ้งเตือนเข้ามาระหว่างที่เครื่องหลับ/ล็อกอยู่
-                pollMissedPushes();
-            });
-        }
-
-        // เน็ตหลุด-กลับมา (WiFi สะดุด) ก็เป็นอีกจุดที่ทำให้ socket ค้าง
-        window.addEventListener('online', function() {
-            if (pbToken && (!pbWs || pbWs.readyState !== WebSocket.OPEN)) {
-                pbLog('🌐 อินเทอร์เน็ตกลับมา → เชื่อมต่อ Pushbullet ใหม่', 'w');
-                connectPushbullet();
-            }
-        });
+        // แปลง source ที่มือถือส่งมา (ต้องตรงกับ android-app/parser-spec/patterns.json sources[])
+        // ให้เป็นกลุ่ม/ป้ายชื่อที่ POS Hero ใช้อยู่แล้ว — bank1/bank2 คือสองบัญชีธนาคารจริงของร้าน
+        // (แยกช่องกระทบยอด reconBank1/reconBank2 คนละช่อง) ไม่ใช่ "กลุ่มธนาคาร 1 vs 2" ทั่วไป
+        var SOURCE_TO_GROUP = {
+            scb: 'bank1', krungsri: 'bank1', ktb: 'bank1',
+            kplus: 'bank2', bbl: 'bank2', ttb: 'bank2',
+            paotang: 'paotang', truemoney: 'paotang', thungngern: 'paotang',
+            maemanee: 'maemanee',
+            unknown: 'fallback'
+        };
+        var SOURCE_LABELS = {
+            scb: 'SCB', krungsri: 'กรุงศรี', ktb: 'กรุงไทย',
+            kplus: 'K PLUS', bbl: 'กรุงเทพ', ttb: 'ttb',
+            paotang: 'เป๋าตัง', truemoney: 'TrueMoney', thungngern: 'ถุงเงิน',
+            maemanee: 'แม่มณี', unknown: 'ไม่ทราบแหล่งที่มา'
+        };
 
         // ==========================================
-        // [FIX #7] extractMoney — ดึงตัวเลขอัจฉริยะ
-        // [FIX] ใช้ท่าไม้ตาย 1-2 ก่อน + return ตัวที่ใหญ่ที่สุดเสมอ
+        // injectPaymentEvent — บันทึกยอดเข้าตาราง POS + autofill ช่องกระทบยอด
+        // (เดิมคือ pbInject — ตัดส่วนแยก "ชื่อผู้โอน" จากข้อความดิบทิ้งไป เพราะ android-app ไม่ส่ง
+        // ข้อความแจ้งเตือนดิบออกจากเครื่องแล้ว มีแค่ยอด/แหล่งที่มา/เวลาให้ใช้เท่านั้น — ชื่อรายการที่
+        // บันทึกจึงเป็น "โอนผ่าน <แหล่งที่มา>" แทนชื่อลูกค้าจริง)
         // ==========================================
-        function extractMoney(text) {
-            if (!text) return null;
-            const t = text;
-            pbLog('[PARSE] "' + t.substring(0,60).replace(/\n/g,' ') + '"', 'i');
-
-            // ท่าไม้ตาย 1: จับคู่คำว่า "บาท" หรือ "฿" โดยตรง (เช่น "69 บาท")
-            let match1 = t.match(/([\d,]+(?:\.\d+)?)\s*(?:บาท|฿|thb)/i);
-            if (match1 && match1[1]) {
-                let num = parseFloat(match1[1].replace(/,/g, ''));
-                if (num > 0 && num <= 999999) { pbLog('[FOUND] เจอคำว่าบาท: ' + num, 'i'); return num; }
-            }
-
-            // ท่าไม้ตาย 2: จับหลังคำแอคชัน (เช่น "เงินเข้า 69")
-            let match2 = t.match(/(?:เงินเข้า|รับโอน|ยอดเงิน|โอนเงินเข้า|จำนวน|ได้รับ|จำนวนเงิน)\s*([\d,]+(?:\.\d+)?)/i);
-            if (match2 && match2[1]) {
-                let num = parseFloat(match2[1].replace(/,/g, ''));
-                if (num > 0 && num <= 999999) { pbLog('[FOUND] เจอคำสั่งเงินเข้า: ' + num, 'i'); return num; }
-            }
-
-            // ท่าไม้ตาย 3: ของเดิม (เผื่อรูปแบบแปลก)
-            let clean = t.replace(/฿/g, '').replace(/บาท/g, '').replace(/บ\./g, '').replace(/B\./g, '').replace(/THB/gi, '');
-
-            let m3 = clean.match(/(\d{1,3}(?:,\d{3})+\.\d{2})/g);
-            if (m3) {
-                const nums = m3.map(s => parseFloat(s.replace(/,/g,''))).filter(n => n > 0 && n <= 999999);
-                if (nums.length) { pbLog('[FOUND] comma-decimal: ' + Math.max.apply(null,nums), 'i'); return Math.max.apply(null,nums); }
-            }
-
-            m3 = clean.match(/(\d{1,3}(?:,\d{3})+)/g);
-            if (m3) {
-                const nums = m3.map(s => parseFloat(s.replace(/,/g,''))).filter(n => n > 0 && n <= 999999);
-                if (nums.length) { pbLog('[FOUND] comma: ' + Math.max.apply(null,nums), 'i'); return Math.max.apply(null,nums); }
-            }
-
-            m3 = clean.match(/(\d+\.\d{2})/g);
-            if (m3) {
-                const nums = m3.map(s => parseFloat(s)).filter(n => n > 0 && n <= 999999);
-                if (nums.length) { pbLog('[FOUND] decimal: ' + Math.max.apply(null,nums), 'i'); return Math.max.apply(null,nums); }
-            }
-
-            // [FIX] ท่าไม้ตาย 4: ใช้ Math.max เสมอ (ไม่ใช่ nums[0]) + filter ปี/เวลา
-            let m4 = clean.match(/(\d{4,})/g);
-            if (m4) {
-                const nums = m4.map(s => parseFloat(s)).filter(n => n > 0 && n <= 999999 && !(n >= 2500 && n <= 2600) && !(n >= 2020 && n <= 2030));
-                if (nums.length) { pbLog('[FOUND] plain: ' + Math.max.apply(null,nums), 'i'); return Math.max.apply(null,nums); }
-            }
-
-            if (/เงิน|โอน|รับ|เข้า|received|transfer|incoming/i.test(t)) {
-                m4 = clean.match(/(\d{3,})/g);
-                if (m4) {
-                    const nums = m4.map(s => parseFloat(s)).filter(n => n > 0 && n <= 999999 && !(n >= 2500 && n <= 2600) && !(n >= 2020 && n <= 2030));
-                    if (nums.length) { pbLog('[FOUND] keyword+3digit: ' + Math.max.apply(null,nums), 'i'); return Math.max.apply(null,nums); }
-                }
-            }
-
-            pbLog('[NOT FOUND] ไม่พบตัวเลข', 'e');
-            return null;
-        }
-
-        // ==========================================
-        // [FIX #8] detectSource — ตรวจจับแหล่งที่มาแบบกว้างขึ้น
-        // ==========================================
-        function detectSource(text) {
-            const t = (text || '').toLowerCase();
-
-            // Mae Manee แยกออกมาก่อน
-            if (t.indexOf('mae manee') > -1 || t.indexOf('maemanee') > -1 || t.indexOf('แม่มณี') > -1) return 'maemanee';
-
-            // เป๋าตัง / ถุงเงิน / TrueMoney
-            if (t.indexOf('paotang') > -1 || t.indexOf('เป๋าตัง') > -1 ||
-                t.indexOf('ถุงเงิน') > -1 || t.indexOf('tungngoen') > -1 || t.indexOf('tung ngoen') > -1 ||
-                t.indexOf('pao tang') > -1 || t.indexOf('truemoney') > -1 || t.indexOf('ทรูมันนี่') > -1 ||
-                t.indexOf('true money') > -1 || t.indexOf('wallet') > -1 || t.indexOf('เป๋าตัง') > -1) return 'paotang';
-
-            // ธนาคาร — เพิ่มธนาคารมากขึ้น
-            if (t.indexOf('scb') > -1 || t.indexOf('ไทยพาณิชย์') > -1 || t.indexOf('scb easy') > -1 || t.indexOf('scbeasy') > -1) return 'bank1';
-            if (t.indexOf('k plus') > -1 || t.indexOf('กสิกร') > -1 || t.indexOf('kbank') > -1 || t.indexOf('kasikorn') > -1 || t.indexOf('k-plus') > -1 || t.indexOf('kplus') > -1) return 'bank2';
-            if (t.indexOf('krungsri') > -1 || t.indexOf('กรุงศรี') > -1 || t.indexOf('ayudhya') > -1) return 'bank1';
-            if (t.indexOf('bangkok bank') > -1 || t.indexOf('กรุงเทพ') > -1 || t.indexOf('bbl') > -1) return 'bank2';
-            if (t.indexOf('krungthai') > -1 || t.indexOf('กรุงไทย') > -1 || t.indexOf('krung thai') > -1) return 'bank1';
-            if (t.indexOf('ttb') > -1 || t.indexOf('ทหารไทย') > -1 || t.indexOf('thanachart') > -1) return 'bank2';
-            if (t.indexOf('ออมสิน') > -1 || t.indexOf('gsb') > -1 || t.indexOf('govbank') > -1) return 'bank1';
-            if (t.indexOf('เกษตร') > -1 || t.indexOf('baac') > -1) return 'bank2';
-            if (t.indexOf('กรุงศรี') > -1 || t.indexOf('กรุงศรี') > -1) return 'bank1';
-            if (t.indexOf('uob') > -1 || t.indexOf('ยูโอบี') > -1) return 'bank2';
-
-            // Fallback: ใช้ keyword ทั่วไป
-            if (t.indexOf('เงินเข้า') > -1 || t.indexOf('รับโอน') > -1 || t.indexOf('received') > -1 ||
-                t.indexOf('transfer') > -1 || t.indexOf('incoming') > -1 || t.indexOf('รับเงิน') > -1) return 'bank1';
-
-            return null;
-        }
-
-        // ==========================================
-        // [FIX #9] pbInject — รวมจาก Override Patch + แก้ Dedup
-        // [FIX #4] ลด Dedup Window จาก 10 → 3 วินาที + ใช้ Signature ที่เฉพาะเจาะจงกว่า
-        // ==========================================
-        function pbInject(amount, srcType, rawTitle, rawBody) {
-            // --- ระบบป้องกันการบันทึกซ้ำซ้อน (Deduplication) ---
-            var now = Date.now();
-            var fullTextToParse = ((rawBody || '') + " " + (rawTitle || '')).replace(/\n/g, ' ');
-
-            // [FIX] ใช้ข้อความเต็มแทนตัด 30 ตัวแรก — เดิมตัดสั้นเกินไป ทำให้สองรายการที่
-            // "ยอดเท่ากันพอดี" จากคนละคนซึ่งเข้ามาไม่ถึง 3 วิ (ปกติมากตอนลูกค้าเยอะๆ จ่ายเลขกลมๆ
-            // เช่น 20/50/100 บาท พร้อมกัน) ถูกมองว่าเป็น push+mirror ซ้ำกันของรายการเดียว ทั้งที่
-            // ชื่อผู้โอนจริงต่างกัน (แค่บังเอิญอยู่หลังตำแหน่งที่ 30 ของเทมเพลตแจ้งเตือนธนาคาร) —
-            // เลยถูกข้ามไปเงียบๆ ไม่บันทึกทั้งที่เป็นรายการจริง ข้อความเต็มยังจับ push+mirror ของ
-            // เหตุการณ์เดียวกันได้เหมือนเดิม (เนื้อหาเหมือนกันทุกตัวอักษร) แต่ไม่ชนกับรายการอื่นที่
-            // ชื่อผู้โอนต่างกันอีกต่อไป
-            var sig = amount + "_" + fullTextToParse;
-
-            // [FIX #4] ลด window จาก 10 วินาที → 3 วินาที (กันแอปเด้งเบิ้ล push+mirror)
-            if (window._lastPbSig === sig && (now - window._lastPbTime) < 3000) {
-                pbLog('⚠️ ข้ามการบันทึกซ้ำซ้อนภายใน 3 วินาที', 'w');
-                return;
-            }
-            window._lastPbSig = sig;
-            window._lastPbTime = now;
-            // ---------------------------------------------
-
+        function injectPaymentEvent(amount, group, sourceLabel) {
             var cfg = getPbConfig();
             var toTable = document.getElementById('pbToTable') ? document.getElementById('pbToTable').checked : true;
 
-            // แมพแหล่งที่มา → config key
-            var mapKey = srcType || 'fallback';
-            if (srcType === 'bank1' || srcType === 'bank2') mapKey = 'bank';
-
+            var mapKey = (group === 'bank1' || group === 'bank2') ? 'bank' : group;
             var recType = cfg[mapKey] || 'transfer';
             var doRecon = cfg['recon' + mapKey.charAt(0).toUpperCase() + mapKey.slice(1)];
             if (doRecon === undefined) doRecon = true;
 
-            // ชื่อรายการอัตโนมัติ — [FIX] ดึงชื่อให้สั้นกระชับ
-            var shortName = "";
-            var match = fullTextToParse.match(/จาก\s*(.*?)(?:\s*วันที่|\s*เวลา|\s*จำนวน|\s*ยอด|$)/);
-            if (match && match[1]) {
-                shortName = match[1].trim();
-            } else {
-                shortName = fullTextToParse.trim().substring(0, 15);
-            }
-            if (shortName.length > 25) shortName = shortName.substring(0, 25) + '...';
-            if (!shortName || shortName === "") shortName = "ลูกค้าโอน";
-
-            var recordName = shortName;
+            var recordName = 'โอนผ่าน ' + sourceLabel;
 
             // 1. ใส่เข้าตารางหลัก POS
             if (toTable) {
@@ -1054,10 +790,10 @@
             // 2. ใส่เข้าช่องกระทบยอด
             if (doRecon && document.getElementById('reconModal') && document.getElementById('reconModal').style.display === 'flex') {
                 var fieldId = null;
-                if (srcType === 'paotang') fieldId = 'reconPaotang';
-                else if (srcType === 'bank1') fieldId = 'reconBank1';
-                else if (srcType === 'bank2') fieldId = 'reconBank2';
-                else if (srcType === 'maemanee') fieldId = 'reconBank1';
+                if (group === 'paotang') fieldId = 'reconPaotang';
+                else if (group === 'bank1') fieldId = 'reconBank1';
+                else if (group === 'bank2') fieldId = 'reconBank2';
+                else if (group === 'maemanee') fieldId = 'reconBank1';
                 else fieldId = 'reconBank1';
 
                 var el = document.getElementById(fieldId);
@@ -1075,95 +811,54 @@
         }
 
         // ==========================================
-        // [FIX #10] handlePbPush — [FIX] เพิ่ม keyword + ใช้ appName
+        // handlePaymentEvent — event ที่ main.js validate แล้วส่งเข้ามาผ่าน IPC (ดู preload.js
+        // onPaymentEvent) รูปร่างคงที่เสมอ (v1/event_id/amount/currency/source/occurred_at/is_test)
+        // ไม่ต้องเดา/พาร์สข้อความอีกต่อไป (ต่างจาก handlePbPush เดิม)
         // ==========================================
-        function handlePbPush(push) {
-            // [BACKFILL] iden ถาวร กันนับซ้ำระหว่าง realtime กับ poll backfill (ถ้าไม่มี iden
-            // ให้ผ่านไปพึ่ง signature-dedup 3 วิใน pbInject แทน)
-            if (push.iden && isPushProcessed(push.iden)) {
-                pbLog('⏭️ ข้าม (ประมวลผลแล้ว): ' + push.iden, 'i');
+        function handlePaymentEvent(payload) {
+            if (!payload || typeof payload.amount !== 'number') return;
+            if (payload.event_id && isPaymentEventProcessed(payload.event_id)) {
+                pbLog('⏭️ ข้าม (ประมวลผลแล้ว): ' + payload.event_id, 'i');
+                return;
+            }
+            if (payload.event_id) markPaymentEventProcessed(payload.event_id);
+
+            // รายการทดสอบ (จากปุ่ม "ทดสอบส่งรายการโอนจำลอง" ในแอปมือถือ) — แค่ยืนยันว่าเส้นทาง
+            // มือถือ → server → ที่นี่ทำงานจริง ไม่บันทึกลงรายการขายจริง
+            if (payload.is_test) {
+                pbLog('🧪 ทดสอบสำเร็จ: +' + payload.amount.toLocaleString('en-US') + ' ฿ (ไม่บันทึกเข้าตารางจริง)', 'm');
                 return;
             }
 
-            try {
-                var title = push.title || '';
-                var body = push.body || '';
-                // [FIX] ดึงชื่อแอปที่ส่งแจ้งเตือนมาด้วย!
-                var appName = push.application_name || push.app_name || '';
-                var full = title + ' ' + body + ' ' + appName;
-
-                pbLog('---', 'i');
-                pbLog('APP: ' + appName, 'i');
-                pbLog('TITLE: ' + title.substring(0,40), 'i');
-                pbLog('BODY: ' + body.substring(0,60), 'i');
-
-                // [FIX #10] เพิ่ม keyword ให้ครอบคลุมมากขึ้น
-                var kw = ['เงินเข้า','รับโอน','เงินโอน','received','transfer','เข้า','รับเงิน','ได้รับ',
-                          'top-up','เติมเงิน','คืนเงิน','money received','incoming',
-                          'เงินโอนเข้า','โอนเงินเข้า','รับชำระ','ชำระเงิน','promptpay','พร้อมเพย์',
-                          'สำเร็จ','โอนเงิน','ยอดเงิน','เงินโอนเข้าบัญชี','ชำระ','รับ',
-                          'deposit','credit','payment','transaction'];
-                var isMoney = false;
-                for (var i=0; i<kw.length; i++) {
-                    if (full.toLowerCase().indexOf(kw[i]) > -1) { isMoney = true; break; }
-                }
-                if (!isMoney) {
-                    pbLog('[SKIP] ไม่ใช่แจ้งเตือนเงินเข้า', 'i');
-                    return;
-                }
-
-                var amt = extractMoney(full);
-                var src = detectSource(full);
-
-                if (!amt) {
-                    pbLog('[FAIL] อ่านยอดไม่ได้: ' + full.substring(0,80), 'e');
-                    return;
-                }
-
-                if (!src) {
-                    src = 'fallback';
-                    pbLog('[WARN] ไม่รู้แหล่งที่มา → ใช้ fallback', 'w');
-                }
-
-                pbInject(amt, src, title, body);
-            } finally {
-                // [BACKFILL] ประทับ iden ว่า "ประมวลผลแล้ว" ไม่ว่าผลจะเป็นบันทึกสำเร็จหรือ skip/fail
-                // ก็ตาม กัน poll รอบถัดไปดึง push เดิมมาพยายามซ้ำอีกไม่รู้จบ
-                if (push.iden) markPushProcessed(push.iden);
-            }
+            var group = SOURCE_TO_GROUP[payload.source] || 'fallback';
+            var label = SOURCE_LABELS[payload.source] || 'ไม่ทราบแหล่งที่มา';
+            injectPaymentEvent(payload.amount, group, label);
         }
 
-        // ==========================================
-        // [BACKFILL] pollMissedPushes — ตาข่ายนิรภัยสำรองจาก WS realtime
-        // ดึง push ที่อาจตกหล่นจาก Pushbullet REST API มา backfill ผ่าน pipeline เดิม
-        // (handlePbPush มี iden-dedup กันนับซ้ำกับของที่ WS realtime เก็บไปแล้วอยู่แล้ว)
-        // ==========================================
-        function getPbPollTs() {
-            var v = parseInt(localStorage.getItem('lastPbPollTs'), 10);
-            // ครั้งแรกที่ไม่เคยมีค่า ให้เริ่มจาก "ตอนนี้" กันดึงประวัติเก่าย้อนหลังเป็นวันๆ มา replay
-            if (!v) { v = Date.now(); localStorage.setItem('lastPbPollTs', String(v)); }
-            return v;
+        if (window.heroWindow && window.heroWindow.onPaymentEvent) {
+            window.heroWindow.onPaymentEvent(handlePaymentEvent);
         }
 
-        function pollMissedPushes() {
-            if (!pbToken || !window.heroWindow || !window.heroWindow.pollMissedPushes) return;
-            var sinceTs = getPbPollTs() / 1000; // Pushbullet API ใช้หน่วยวินาที (epoch)
-            window.heroWindow.pollMissedPushes(pbToken, sinceTs).then(function(res) {
-                if (!res || !res.success) {
-                    if (res && res.reason) pbLog('[POLL] เช็คย้อนหลังไม่สำเร็จ: ' + res.reason, 'w');
-                    return;
-                }
-                var pushes = (res.pushes || []).filter(function(p) { return p.active !== false; });
-                pushes.sort(function(a, b) { return (a.created || 0) - (b.created || 0); });
-                pbLog('[POLL] เช็คย้อนหลัง: พบ ' + pushes.length + ' รายการ', 'i');
-                pushes.forEach(function(p) { handlePbPush(p); });
-                localStorage.setItem('lastPbPollTs', String(Date.now()));
-            }).catch(function(e) {
-                pbLog('[POLL] error: ' + e.message, 'e');
+        // สถานะ "มือถือยังส่งสัญญาณอยู่ไหม" — main.js เป็นคนตัดสิน (นับจาก /ping และ /notify ที่ผ่าน
+        // token ถูก, ดู main.js's watchdog) แล้วส่งมาทาง IPC ทีเดียว ไม่ต้องมี timer ฝั่งนี้อีกต่อไป
+        if (window.heroWindow && window.heroWindow.onRelayStatus) {
+            window.heroWindow.onRelayStatus(function(status) {
+                if (!status) return;
+                if (status.state === 'ok') setPbStatus('🟢 มือถือเชื่อมต่อปกติ', 'ok');
+                else if (status.state === 'err') setPbStatus('🔴 ไม่ได้ยินจากมือถือ', 'err');
+                else setPbStatus('⏸️ รอมือถือเชื่อมต่อครั้งแรก', '');
             });
         }
 
-        setInterval(pollMissedPushes, 2 * 60 * 1000); // เช็คย้อนหลังทุก 2 นาทีเป็นพื้นฐาน
+        // ปุ่ม "📶 ดูข้อมูลเชื่อมต่อ" ใน pb-box — เอา IP/Token ที่ main.js สุ่มไว้ให้ไปตั้งค่าในแอปมือถือ
+        function showRelayInfo() {
+            if (!window.heroWindow || !window.heroWindow.getRelayInfo) return;
+            window.heroWindow.getRelayInfo().then(function(info) {
+                if (!info) return;
+                var ipText = info.ips && info.ips.length ? info.ips.join(' หรือ ') : 'ไม่พบ IP วง LAN (เช็ค WiFi)';
+                alert('ตั้งค่าในแอป "POS Relay" บนมือถือ:\n\nServer: ' + ipText + ':' + info.port + '\nToken: ' + info.token);
+            });
+        }
 
         // ==========================================
         // Initialize App

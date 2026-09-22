@@ -540,7 +540,7 @@
     #sumNet { font-size: 22px; }
 
     /* ---------------------------------------------------------------
-       Pushbullet box — original stylesheet ships no rules for these
+       Phone-relay box — original stylesheet ships no rules for these
        classes; give them a minimal dark skin so the recon modal
        doesn't fall back to unstyled browser defaults.
        --------------------------------------------------------------- */
@@ -710,12 +710,12 @@
     }
 
     /* ---------------------------------------------------------------
-       Pushbullet connection status LED — one glanceable dot for whether
-       the realtime auto-record socket is actually up, in both the full
-       titlebar and the mini HUD, kept in sync by renderer/app.js's
-       setPbStatus() (the same function that already drives #pbStatus'
-       text inside the reconciliation modal). Default (no state class) =
-       gray = idle/never connected this session.
+       Phone-relay connection status LED — one glanceable dot for whether
+       the phone is actually still sending payment events/heartbeats, in
+       both the full titlebar and the mini HUD, kept in sync by
+       renderer/app.js's setPbStatus() (the same function that already
+       drives #pbStatus' text inside the reconciliation modal). Default
+       (no state class) = gray = never seen the phone this session.
        --------------------------------------------------------------- */
     .pb-led, .mini-pb-led {
         width: 8px;

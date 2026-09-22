@@ -1,8 +1,10 @@
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage, Notification, powerMonitor } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage, Notification, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const http = require('http');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 app.setAppUserModelId('com.xziramoon.poshero');
@@ -118,11 +120,12 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      // This widget must keep its Pushbullet WebSocket alive and its
-      // reconnect/health-check timers on schedule even while hidden in
-      // the tray — Chromium's default background throttling would slow
-      // both down and widen the window where an incoming transfer could
-      // be missed.
+      // The phone-notification relay's HTTP server and liveness watchdog run
+      // in the main process (see startRelayServer() below), so they're
+      // unaffected by this either way — but this window must still redraw
+      // the money-in celebration / LED state the instant those IPC events
+      // arrive, even while sitting hidden in the tray as the mini HUD.
+      // Chromium's default background throttling delays exactly that.
       backgroundThrottling: false
     }
   });
@@ -189,6 +192,8 @@ function refreshTrayMenu() {
     } },
     { label: '↩️ กลับไปมุมจอ', click: () => dockToCorner() },
     { type: 'separator' },
+    { label: '📱 ข้อมูลเชื่อมต่อมือถือ (IP/Token)', click: () => showRelayInfoDialog() },
+    { type: 'separator' },
     { label: '🔄 ตรวจสอบอัปเดต', click: () => {
       manualUpdateCheck = true;
       // The 'error' event (below) already shows a notification and covers
@@ -227,7 +232,7 @@ function dockToCorner() {
 // "Mini mode" is the TBH-style tiny widget: instead of vanishing to the
 // tray, minimizing shrinks the window down to a small always-on-top HUD
 // docked in the corner (coin mascot + today's net total). All the app
-// logic (records, Pushbullet socket) keeps running underneath — this is
+// logic (records, the phone-relay HTTP server) keeps running underneath — this is
 // purely a window-bounds + renderer-CSS state, nothing is unloaded.
 // Entering mini mode is staged in two IPC round-trips instead of one:
 // 1) 'mode-transition' tells the renderer to start its shrink animation
@@ -305,17 +310,11 @@ app.whenReady().then(() => {
   lastMiniPosition = loadMiniPosition();
   createWindow();
   createTray();
+  startRelayServer();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-
-  // Sleep/lock-screen is the most common way the Pushbullet socket dies
-  // silently. Don't wait for the 10s health-check to notice — force a
-  // reconnect the moment the machine is usable again.
-  const forceReconnect = () => mainWindow?.webContents.send('force-reconnect-pushbullet');
-  powerMonitor.on('resume', forceReconnect);
-  powerMonitor.on('unlock-screen', forceReconnect);
 
   // Auto-update: only meaningful for an installed/packaged build — in dev
   // (npm start) electron-updater no-ops since there's no packaged app to
@@ -581,41 +580,255 @@ ipcMain.on('money:in', (_event, payload) => {
   notif.show();
 });
 
-// Realtime-only ingestion (the Pushbullet WebSocket) has a hard failure
-// mode: if a push is missed for any reason — phone-side Doze/battery
-// manager delaying the mirror sync after long idle, a reconnect window,
-// a brief network blip — it's gone forever with no way to recover it.
-// This REST poll is the backfill safety net: ask Pushbullet's API for
-// anything modified since we last checked, so a delayed-but-eventually-
-// synced push still gets picked up. Runs in main (not renderer) so it
-// isn't subject to renderer CORS/webSecurity at all.
-ipcMain.handle('pb:poll-missed', async (_event, { token, sinceTs }) => {
-  try {
-    const res = await fetch(
-      `https://api.pushbullet.com/v2/pushes?modified_after=${encodeURIComponent(sinceTs)}&active=true`,
-      { headers: { 'Access-Token': token } }
-    );
-    if (!res.ok) return { success: false, reason: 'http ' + res.status };
-    const data = await res.json();
-    return { success: true, pushes: data.pushes || [] };
-  } catch (e) {
-    return { success: false, reason: e.message };
-  }
-});
+// ==========================================
+// Phone-notification relay — embedded LAN HTTP server (replaces Pushbullet)
+// ==========================================
+// Same role Pushbullet used to play, but running entirely inside this app's
+// own main process instead of a third-party cloud relay: the Android app
+// (android-app/, a separate project — see its README) parses bank/wallet
+// notifications on the phone itself and POSTs only a structured payment
+// event over LAN — never the raw notification text. This server accepts
+// that event, validates it, and hands it to the renderer via IPC.
+const RELAY_CONFIG_PATH = path.join(app.getPath('userData'), 'relay-config.json');
+const RELAY_DEFAULT_PORT = 8788; // deliberately different from the standalone
+// "POS Notification Relay" product's default (8787) so both can run on the
+// same LAN/machine without a port clash if a shop happens to use both.
 
-ipcMain.on('pb:disconnected-warning', (_event, downMinutes) => {
-  if (!Notification.isSupported()) return;
-  const notif = new Notification({
-    title: '⚠️ Pushbullet ขาดการเชื่อมต่อ',
-    body: `ไม่ได้รับสัญญาณมา ${downMinutes} นาทีแล้ว อาจพลาดยอดเงินเข้า — ลองเปิดมือถือ/เช็คเน็ตแล้วเปิดแอปนี้ขึ้นมาดู`,
-    icon: path.join(__dirname, 'build', 'icon.ico'),
-    urgency: 'critical'
+function loadRelayConfig() {
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(RELAY_CONFIG_PATH, 'utf8')); } catch (e) { cfg = {}; }
+  let changed = false;
+  if (!cfg.token) { cfg.token = crypto.randomBytes(16).toString('hex'); changed = true; }
+  if (!cfg.port) { cfg.port = RELAY_DEFAULT_PORT; changed = true; }
+  if (changed) {
+    try { fs.writeFileSync(RELAY_CONFIG_PATH, JSON.stringify(cfg, null, 2)); } catch (e) { /* ไม่มี config ถาวรก็ยังใช้ค่าที่สุ่มไว้ในหน่วยความจำได้ต่อไปในเซสชันนี้ */ }
+  }
+  return cfg;
+}
+
+function getLanIPs() {
+  const nets = os.networkInterfaces();
+  const ips = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) ips.push(net.address);
+    }
+  }
+  return ips;
+}
+
+const relayConfig = loadRelayConfig();
+
+// allow-list ของ source ที่รู้จัก — ต้องตรงกับ sources[] ใน android-app/parser-spec/patterns.json
+// (โปรเจกต์แยกกัน คนละ repo กับ pos-hero นี้) ไม่ได้ import ไฟล์นั้นมาตรงๆ เพราะ pos-hero ไม่ได้
+// bundle android-app ไว้ด้วย — ถ้าเพิ่ม source ใหม่ฝั่ง android-app ต้องมาแก้ที่นี่ด้วยมือ
+const ALLOWED_RELAY_SOURCES = new Set([
+  'kplus', 'scb', 'ktb', 'bbl', 'krungsri', 'ttb',
+  'truemoney', 'paotang', 'thungngern', 'maemanee', 'unknown'
+]);
+const RELAY_EVENT_ID_RE = /^[a-f0-9]{32}$/;
+
+// กันรายการซ้ำด้วย event_id (เช่น android-app รีทรานส่งเพราะไม่เห็น response ทันเวลา)
+const RELAY_DEDUPE_TTL_MS = 10 * 60 * 1000;
+const seenRelayEventIds = new Map();
+function isDuplicateRelayEvent(eventId) {
+  const now = Date.now();
+  if (seenRelayEventIds.has(eventId)) return true;
+  seenRelayEventIds.set(eventId, now);
+  return false;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, ts] of seenRelayEventIds) {
+    if (now - ts > RELAY_DEDUPE_TTL_MS) seenRelayEventIds.delete(id);
+  }
+}, 60 * 1000).unref();
+
+// lastRelayActivity คือหัวใจของ LED สถานะ (แทนที่ readyState ของ WebSocket เดิม) — อัปเดตทุกครั้งที่
+// ได้รับ /ping หรือ /notify ที่ผ่าน auth แล้ว ไม่ว่า payload จะ valid หรือไม่ก็ตาม (แค่ต้องมี token ถูก
+// ก็พอถือว่า "มือถือยังส่งสัญญาณมาอยู่")
+let lastRelayActivity = 0;
+let relayEverSeen = false;
+let relayIsDown = false;
+let lastRelayDownNotifyAt = 0;
+const RELAY_OK_WINDOW_MS = 130 * 1000; // ~2 heartbeat รอบ (60s/รอบ) ของ android-app เผื่อ jitter/หลุด 1 ครั้ง
+const RELAY_DOWN_NOTIFY_REPEAT_MS = 5 * 60 * 1000; // เตือนซ้ำได้ทุก 5 นาทีถ้ายังไม่ฟื้น (เท่าของเดิม)
+
+function sendRelayStatus() {
+  const state = !relayEverSeen ? 'unconfigured' : (relayIsDown ? 'err' : 'ok');
+  mainWindow?.webContents.send('relay:status', { state, lastActivity: lastRelayActivity });
+}
+
+// ตรวจทุก 10 วิ (เท่าของเดิม) — ไม่มี WebSocket ให้ onclose บอกเราอีกต่อไป ต้องเดาจาก "เงียบไปนานแค่ไหน" แทน
+setInterval(() => {
+  if (!relayEverSeen) return;
+  const downFor = Date.now() - lastRelayActivity;
+  const nowDown = downFor > RELAY_OK_WINDOW_MS;
+  if (nowDown !== relayIsDown) {
+    relayIsDown = nowDown;
+    sendRelayStatus();
+  }
+  if (relayIsDown && Notification.isSupported() && (Date.now() - lastRelayDownNotifyAt) > RELAY_DOWN_NOTIFY_REPEAT_MS) {
+    lastRelayDownNotifyAt = Date.now();
+    const downMinutes = Math.round(downFor / 60000);
+    const notif = new Notification({
+      title: '⚠️ ไม่ได้รับสัญญาณจากมือถือ',
+      body: `ไม่ได้ยินจากแอป POS Relay บนมือถือมา ${downMinutes} นาทีแล้ว อาจพลาดยอดเงินเข้า — เช็คว่ามือถือยังเปิดแอปอยู่/ต่อ WiFi วงเดียวกับเครื่องนี้`,
+      icon: path.join(__dirname, 'build', 'icon.ico'),
+      urgency: 'critical'
+    });
+    notif.on('click', () => { mainWindow?.show(); mainWindow?.focus(); refreshTrayMenu(); });
+    notif.show();
+  }
+}, 10000);
+
+function handleRelayRequest(req, res) {
+  const url = new URL(req.url, 'http://localhost');
+
+  if (req.method === 'GET' && url.pathname === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, name: 'POS Hero relay' }));
+    return;
+  }
+
+  if (req.method === 'POST' && (url.pathname === '/ping' || url.pathname === '/notify')) {
+    const auth = req.headers['authorization'] || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    if (token !== relayConfig.token) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'invalid token' }));
+      return;
+    }
+
+    // แรกที่เห็นมือถือเลย (relayEverSeen false→true) ก็ต้องแจ้ง renderer ให้พ้นสถานะ
+    // "unconfigured" เหมือนกับตอนฟื้นจาก err→ok — ทั้งสองกรณีคือ "สถานะที่ LED โชว์เปลี่ยนไป"
+    const wasDownOrUnseen = relayIsDown || !relayEverSeen;
+    relayEverSeen = true;
+    lastRelayActivity = Date.now();
+    relayIsDown = false;
+    if (wasDownOrUnseen) sendRelayStatus();
+
+    if (url.pathname === '/ping') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => { body += chunk; if (body.length > 1e5) req.destroy(); });
+    req.on('end', () => {
+      try {
+        let data;
+        try { data = JSON.parse(body); } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'invalid json' }));
+          return;
+        }
+        if (!data || typeof data !== 'object') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'invalid json' }));
+          return;
+        }
+
+        const errors = [];
+        if (data.v !== 1) errors.push('v');
+        if (typeof data.event_id !== 'string' || !RELAY_EVENT_ID_RE.test(data.event_id)) errors.push('event_id');
+        if (typeof data.amount !== 'number' || !Number.isFinite(data.amount) || data.amount <= 0 || data.amount > 999999) errors.push('amount');
+        if (typeof data.currency !== 'string' || data.currency.length === 0) errors.push('currency');
+
+        let isTest = false;
+        if (data.is_test === undefined) { isTest = false; }
+        else if (typeof data.is_test === 'boolean') { isTest = data.is_test; }
+        else { errors.push('is_test'); }
+
+        if (typeof data.source !== 'string' || data.source.length === 0) {
+          errors.push('source');
+        } else if (isTest) {
+          if (data.source !== 'test') errors.push('source');
+        } else {
+          if (data.source === 'test' || !ALLOWED_RELAY_SOURCES.has(data.source)) errors.push('source');
+        }
+
+        if (typeof data.occurred_at !== 'number' || !Number.isFinite(data.occurred_at)) errors.push('occurred_at');
+
+        if (errors.length) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'invalid_payload', fields: errors }));
+          return;
+        }
+
+        if (isDuplicateRelayEvent(data.event_id)) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, duplicate: true }));
+          return;
+        }
+
+        const payload = {
+          type: 'payment',
+          v: 1,
+          event_id: data.event_id,
+          amount: data.amount,
+          currency: data.currency,
+          source: data.source,
+          source_package: String(data.source_package || ''),
+          occurred_at: data.occurred_at,
+          is_test: isTest
+        };
+        mainWindow?.webContents.send('payment:event', payload);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'internal_error' }));
+        }
+      }
+    });
+    return;
+  }
+
+  res.writeHead(404);
+  res.end('not found');
+}
+
+function startRelayServer() {
+  const server = http.createServer((req, res) => {
+    try {
+      handleRelayRequest(req, res);
+    } catch (e) {
+      console.error('[RELAY] เกิดข้อผิดพลาดขณะจัดการ request:', e);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'internal_error' }));
+      }
+    }
   });
-  notif.on('click', () => {
-    if (!mainWindow) return;
-    mainWindow.show();
-    mainWindow.focus();
-    refreshTrayMenu();
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[RELAY] พอร์ต ${relayConfig.port} ถูกใช้งานอยู่แล้ว — อาจเปิด POS Hero ซ้ำสองชุด`);
+    } else {
+      console.error('[RELAY] เกิดข้อผิดพลาดขณะเปิด relay server:', err);
+    }
   });
-  notif.show();
-});
+  server.listen(relayConfig.port);
+}
+
+function showRelayInfoDialog() {
+  const ips = getLanIPs();
+  const ipLines = ips.length
+    ? ips.map(ip => `  Server: ${ip}:${relayConfig.port}`).join('\n')
+    : '  ไม่พบ IP วง LAN — ตรวจสอบว่าเครื่องนี้ต่อ WiFi/LAN อยู่';
+  dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'ข้อมูลเชื่อมต่อมือถือ',
+    message: 'ตั้งค่าในแอป "POS Relay" บนมือถือ',
+    detail: `${ipLines}\n  Token: ${relayConfig.token}\n\nใส่ค่าเดียวกันนี้ในแอปมือถือ (Notification Relay app) แล้วกดทดสอบเชื่อมต่อ`,
+    buttons: ['ปิด']
+  });
+}
+
+ipcMain.handle('relay:get-info', () => ({
+  ips: getLanIPs(),
+  port: relayConfig.port,
+  token: relayConfig.token
+}));
