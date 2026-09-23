@@ -307,6 +307,12 @@ app.whenReady().then(() => {
   // stop the accelerator from calling setFullScreen().
   Menu.setApplicationMenu(null);
 
+  // ร้านต้องพึ่งแอปนี้รับเงินเข้าตลอดเวลาที่เปิดร้าน — ถ้าเครื่องรีสตาร์ท (ไฟดับ/Windows update)
+  // แล้วไม่มีใครมาเปิดแอปเอง relay จะไม่รับสัญญาณจากมือถือเลยจนกว่าจะมีคนสังเกตเห็น กับรายการที่
+  // พลาดไปช่วงนั้นก็ไม่มีทาง replay ได้ทีหลังด้วย (ไม่มี queue ฝั่งมือถือ) จึงต้องเปิดเองตอน
+  // Windows login เสมอ (เหมือน desktop-app/main.js ของโปรเจกต์ relay ตัวเดิม)
+  app.setLoginItemSettings({ openAtLogin: true });
+
   lastMiniPosition = loadMiniPosition();
   createWindow();
   createTray();
