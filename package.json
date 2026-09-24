@@ -9,7 +9,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/xziramoon/pos-hero.git"
+    "url": "https://github.com/xziramoon/pos-lan.git"
   },
   "scripts": {
     "start": "electron .",
@@ -42,7 +42,7 @@
     "publish": {
       "provider": "github",
       "owner": "xziramoon",
-      "repo": "pos-hero"
+      "repo": "pos-lan"
     }
   },
   "dependencies": {
