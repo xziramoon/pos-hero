@@ -757,6 +757,17 @@ function handleRelayRequest(req, res) {
 
         if (typeof data.occurred_at !== 'number' || !Number.isFinite(data.occurred_at)) errors.push('occurred_at');
 
+        // sender_name เป็นฟิลด์ใหม่ (optional) — มือถือส่งมาแบบ best-effort เท่านั้น ไม่ใช่ทุกแหล่งที่มา
+        // จะมีให้เสมอ ถ้าไม่ส่งมาเลยก็ไม่ error, แต่ถ้าส่งมาต้องเป็น string เท่านั้น
+        let senderName = null;
+        if (data.sender_name !== undefined) {
+          if (typeof data.sender_name !== 'string') {
+            errors.push('sender_name');
+          } else {
+            senderName = data.sender_name.trim().slice(0, 100) || null;
+          }
+        }
+
         if (errors.length) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: 'invalid_payload', fields: errors }));
@@ -778,7 +789,8 @@ function handleRelayRequest(req, res) {
           source: data.source,
           source_package: String(data.source_package || ''),
           occurred_at: data.occurred_at,
-          is_test: isTest
+          is_test: isTest,
+          sender_name: senderName
         };
         mainWindow?.webContents.send('payment:event', payload);
         res.writeHead(200, { 'Content-Type': 'application/json' });

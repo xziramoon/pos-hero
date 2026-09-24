@@ -752,11 +752,11 @@
 
         // ==========================================
         // injectPaymentEvent — บันทึกยอดเข้าตาราง POS + autofill ช่องกระทบยอด
-        // (เดิมคือ pbInject — ตัดส่วนแยก "ชื่อผู้โอน" จากข้อความดิบทิ้งไป เพราะ android-app ไม่ส่ง
-        // ข้อความแจ้งเตือนดิบออกจากเครื่องแล้ว มีแค่ยอด/แหล่งที่มา/เวลาให้ใช้เท่านั้น — ชื่อรายการที่
-        // บันทึกจึงเป็น "โอนผ่าน <แหล่งที่มา>" แทนชื่อลูกค้าจริง)
+        // (เดิมคือ pbInject) — android-app ตอนนี้ส่งชื่อผู้โอนมาด้วยแบบ best-effort (ไม่ใช่ทุกแหล่งที่มา
+        // จะมี) ถ้ามี senderName ใช้ชื่อจริงในรายการ ถ้าไม่มีก็ fallback กลับไปเป็น "โอนผ่าน <แหล่งที่มา>"
+        // เหมือนเดิม — ไม่ว่ากรณีไหน ค่าที่มาจากภายนอก (network) จะถูก escapeHTML ตอน render เสมอ (renderTable)
         // ==========================================
-        function injectPaymentEvent(amount, group, sourceLabel) {
+        function injectPaymentEvent(amount, group, sourceLabel, senderName) {
             var cfg = getPbConfig();
             var toTable = document.getElementById('pbToTable') ? document.getElementById('pbToTable').checked : true;
 
@@ -765,7 +765,7 @@
             var doRecon = cfg['recon' + mapKey.charAt(0).toUpperCase() + mapKey.slice(1)];
             if (doRecon === undefined) doRecon = true;
 
-            var recordName = 'โอนผ่าน ' + sourceLabel;
+            var recordName = senderName ? ('โอนจาก ' + senderName) : ('โอนผ่าน ' + sourceLabel);
 
             // 1. ใส่เข้าตารางหลัก POS
             if (toTable) {
@@ -832,7 +832,7 @@
 
             var group = SOURCE_TO_GROUP[payload.source] || 'fallback';
             var label = SOURCE_LABELS[payload.source] || 'ไม่ทราบแหล่งที่มา';
-            injectPaymentEvent(payload.amount, group, label);
+            injectPaymentEvent(payload.amount, group, label, payload.sender_name);
         }
 
         if (window.heroWindow && window.heroWindow.onPaymentEvent) {
