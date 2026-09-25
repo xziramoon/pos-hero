@@ -42,7 +42,8 @@
     "publish": {
       "provider": "github",
       "owner": "xziramoon",
-      "repo": "pos-lan"
+      "repo": "pos-lan",
+      "releaseType": "release"
     }
   },
   "dependencies": {
