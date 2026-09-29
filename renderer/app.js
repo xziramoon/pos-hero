@@ -1061,7 +1061,7 @@
         function extractMoney(text) {
             if (!text) return null;
             const t = text;
-            pbLog('[PARSE] "' + t.substring(0,60).replace(/\n/g,' ') + '"', 'i');
+            pbLog('[PARSE] "' + escapeHTML(t.substring(0,60).replace(/\n/g,' ')) + '"', 'i');
 
             // ท่าไม้ตาย 1: จับคู่คำว่า "บาท" หรือ "฿" โดยตรง (เช่น "69 บาท")
             let match1 = t.match(/([\d,]+(?:\.\d+)?)\s*(?:บาท|฿|thb)/i);
@@ -1155,7 +1155,9 @@
         // [FIX #9] pbInject — รวมจาก Override Patch + แก้ Dedup
         // [FIX #4] ลด Dedup Window จาก 10 → 3 วินาที + ใช้ Signature ที่เฉพาะเจาะจงกว่า
         // ==========================================
-        function pbInject(amount, srcType, rawTitle, rawBody) {
+        // meta (optional) = { channel, eventId, sig } — มาจาก ingestMoneyEvent (ส่วนที่ 12)
+        // คืนค่า record ที่บันทึกลงตาราง (หรือ null ถ้าข้าม/ไม่ได้บันทึกลงตาราง)
+        function pbInject(amount, srcType, rawTitle, rawBody, meta) {
             // --- ระบบป้องกันการบันทึกซ้ำซ้อน (Deduplication) ---
             var now = Date.now();
             var fullTextToParse = ((rawBody || '') + " " + (rawTitle || '')).replace(/\n/g, ' ');
@@ -1170,12 +1172,17 @@
             var sig = amount + "_" + fullTextToParse;
 
             // [FIX #4] ลด window จาก 10 วินาที → 3 วินาที (กันแอปเด้งเบิ้ล push+mirror)
-            if (window._lastPbSig === sig && (now - window._lastPbTime) < 3000) {
+            // ใช้เฉพาะ Pushbullet (ต้นเหตุ push+mirror ซ้อน) — Firebase/วงเน็ตกันซ้ำด้วย eventId แทน
+            // ถ้าใช้กับช่องทางนั้นด้วย โอนจริง 2 ครั้งยอด/ข้อความเหมือนกันภายใน 3 วิจะหายไป 1 รายการ
+            var isPbChannel = !meta || meta.channel === 'pb';
+            if (isPbChannel && window._lastPbSig === sig && (now - window._lastPbTime) < 3000) {
                 pbLog('⚠️ ข้ามการบันทึกซ้ำซ้อนภายใน 3 วินาที', 'w');
-                return;
+                return null;
             }
-            window._lastPbSig = sig;
-            window._lastPbTime = now;
+            if (isPbChannel) {
+                window._lastPbSig = sig;
+                window._lastPbTime = now;
+            }
             // ---------------------------------------------
 
             var cfg = getPbConfig();
@@ -1201,21 +1208,31 @@
             if (!shortName || shortName === "") shortName = "ลูกค้าโอน";
 
             var recordName = shortName;
+            var saved = null;
 
             // 1. ใส่เข้าตารางหลัก POS
             if (toTable) {
                 var timeStr = new Date().toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'});
-                records.push({
+                saved = {
                     time: timeStr,
                     type: recType,
                     name: recordName,
                     amount: amount,
                     isEdited: false
-                });
+                };
+                // field เสริม (ไม่กระทบ renderTable/export/backup — ใช้แค่กันซ้ำข้ามช่องทางและ ✓✓)
+                if (meta) {
+                    saved.ts = now;
+                    saved.via = meta.channel;
+                    saved.channels = [meta.channel];
+                    if (meta.eventId) saved.eventId = meta.eventId;
+                    if (meta.sig) saved.sig = meta.sig;
+                }
+                records.push(saved);
                 localStorage.setItem('posUltimateRecords', JSON.stringify(records));
                 localStorage.setItem('posUltimateDate', new Date().toLocaleDateString('th-TH'));
                 renderTable();
-                pbLog('✅ บันทึก: +' + amount.toLocaleString('en-US') + ' ฿ (' + recordName + ')', 'm');
+                pbLog((meta && CHANNEL_ICONS[meta.channel] ? CHANNEL_ICONS[meta.channel] + ' ' : '') + '✅ บันทึก: +' + amount.toLocaleString('en-US') + ' ฿ (' + escapeHTML(recordName) + ')', 'm');
                 if (window.heroWindow && window.heroWindow.notifyMoneyIn) {
                     window.heroWindow.notifyMoneyIn(amount, recordName, recType);
                 }
@@ -1243,6 +1260,21 @@
                     pbLog('📱 กระทบยอด: +' + amount.toLocaleString('en-US') + ' ฿ → ' + fieldId, 'i');
                 }
             }
+            return saved;
+        }
+
+        // [FIX #10] keyword เงินเข้า — แยกออกมาใช้ร่วมกันทุกช่องทาง (Pushbullet / Firebase / วงเน็ต)
+        var MONEY_KEYWORDS = ['เงินเข้า','รับโอน','เงินโอน','received','transfer','เข้า','รับเงิน','ได้รับ',
+                  'top-up','เติมเงิน','คืนเงิน','money received','incoming',
+                  'เงินโอนเข้า','โอนเงินเข้า','รับชำระ','ชำระเงิน','promptpay','พร้อมเพย์',
+                  'สำเร็จ','โอนเงิน','ยอดเงิน','เงินโอนเข้าบัญชี','ชำระ','รับ',
+                  'deposit','credit','payment','transaction'];
+        function isMoneyNotification(full) {
+            var t = (full || '').toLowerCase();
+            for (var i = 0; i < MONEY_KEYWORDS.length; i++) {
+                if (t.indexOf(MONEY_KEYWORDS[i]) > -1) return true;
+            }
+            return false;
         }
 
         // ==========================================
@@ -1264,21 +1296,11 @@
                 var full = title + ' ' + body + ' ' + appName;
 
                 pbLog('---', 'i');
-                pbLog('APP: ' + appName, 'i');
-                pbLog('TITLE: ' + title.substring(0,40), 'i');
-                pbLog('BODY: ' + body.substring(0,60), 'i');
+                pbLog('APP: ' + escapeHTML(appName), 'i');
+                pbLog('TITLE: ' + escapeHTML(title.substring(0,40)), 'i');
+                pbLog('BODY: ' + escapeHTML(body.substring(0,60)), 'i');
 
-                // [FIX #10] เพิ่ม keyword ให้ครอบคลุมมากขึ้น
-                var kw = ['เงินเข้า','รับโอน','เงินโอน','received','transfer','เข้า','รับเงิน','ได้รับ',
-                          'top-up','เติมเงิน','คืนเงิน','money received','incoming',
-                          'เงินโอนเข้า','โอนเงินเข้า','รับชำระ','ชำระเงิน','promptpay','พร้อมเพย์',
-                          'สำเร็จ','โอนเงิน','ยอดเงิน','เงินโอนเข้าบัญชี','ชำระ','รับ',
-                          'deposit','credit','payment','transaction'];
-                var isMoney = false;
-                for (var i=0; i<kw.length; i++) {
-                    if (full.toLowerCase().indexOf(kw[i]) > -1) { isMoney = true; break; }
-                }
-                if (!isMoney) {
+                if (!isMoneyNotification(full)) {
                     pbLog('[SKIP] ไม่ใช่แจ้งเตือนเงินเข้า', 'i');
                     return;
                 }
@@ -1287,7 +1309,7 @@
                 var src = detectSource(full);
 
                 if (!amt) {
-                    pbLog('[FAIL] อ่านยอดไม่ได้: ' + full.substring(0,80), 'e');
+                    pbLog('[FAIL] อ่านยอดไม่ได้: ' + escapeHTML(full.substring(0,80)), 'e');
                     return;
                 }
 
@@ -1364,11 +1386,34 @@
             return null;
         }
 
+        // ตั้งค่าช่องทาง (localStorage 'inboxConfig') — main.js เป็นคนต่อ Firebase/UDP ตามค่านี้
+        var INBOX_DEFAULTS = { dbUrl: '', inboxKey: '', fbEnabled: false, lanEnabled: false, lanPort: 47800, pbEnabled: true };
+        var inboxCfg = (function() {
+            var c = {};
+            try { c = JSON.parse(localStorage.getItem('inboxConfig')) || {}; } catch(e) { c = {}; }
+            return Object.assign({}, INBOX_DEFAULTS, c);
+        })();
+        var inboxStatus = { fb: { enabled: false, state: 'off', heartbeatTs: 0 }, lan: { enabled: false } };
+
+        function fbIsConfigured() {
+            return !!(inboxCfg.fbEnabled && /^https:\/\//.test(inboxCfg.dbUrl) && /^[A-Za-z0-9_-]{32,}$/.test(inboxCfg.inboxKey));
+        }
+        function sendInboxConfig() {
+            if (!window.heroWindow || !window.heroWindow.setInboxConfig) return;
+            window.heroWindow.setInboxConfig({
+                dbUrl: inboxCfg.dbUrl, inboxKey: inboxCfg.inboxKey, fbEnabled: inboxCfg.fbEnabled,
+                lastKey: localStorage.getItem('fbInboxLastKey') || '',
+                lanEnabled: inboxCfg.lanEnabled, lanPort: inboxCfg.lanPort
+            });
+        }
+
         function inboxPrimaryChannel() {
-            if (pbToken) return 'pb';
+            if (fbIsConfigured()) return 'fb';
+            if (pbToken && inboxCfg.pbEnabled) return 'pb';
             return null;
         }
         function inboxChannelIsUp(ch) {
+            if (ch === 'fb') return inboxStatus.fb.state === 'ok';
             if (ch === 'pb') return pbWsState === 'ok';
             if (ch === 'app') return appRelayState === 'ok';
             return false;
@@ -1384,36 +1429,22 @@
             saveInboxGaps();
         }
 
-        function inboxOnChannelUp(ch) {
+        // recovered=true: ช่องทางนี้ดึงของค้างช่วงหลุดได้ครบแล้ว (Firebase) → ไม่ต้องเตือน
+        function inboxOnChannelUp(ch, recovered) {
             var g = openInboxGap();
             if (!g || ch !== inboxPrimaryChannel()) return;
             g.end = Date.now();
             if (g.end - g.start < INBOX_GAP_MIN_MS) {
                 _inboxGaps.splice(_inboxGaps.indexOf(g), 1);
-            } else if (ch === 'fb') {
-                g.pending = true; // รอผลดึงของค้าง (inboxResolvePendingGaps)
+            } else if (recovered) {
+                pbLog(CHANNEL_ICONS[ch] + ' กู้รายการช่วงหลุด ' + fmtGapTime(g.start) + '–' + fmtGapTime(g.end) + ' ครบแล้ว', 'm');
+                _inboxGaps.splice(_inboxGaps.indexOf(g), 1);
             } else if (g.covered && inboxOtherChannelAlive(ch)) {
                 pbLog('ℹ️ ' + CHANNEL_ICONS[ch] + ' หลุดช่วง ' + fmtGapTime(g.start) + '–' + fmtGapTime(g.end) + ' แต่มีช่องทางอื่นทำงานคลุมอยู่', 'i');
                 _inboxGaps.splice(_inboxGaps.indexOf(g), 1);
             }
             saveInboxGaps();
             renderInboxGapBar();
-        }
-
-        // ผลการดึงของค้างหลังต่อใหม่ — recovered=true แปลว่ารายการช่วงหลุดถูกกู้ครบแล้ว
-        function inboxResolvePendingGaps(recovered) {
-            var changed = false;
-            _inboxGaps = _inboxGaps.filter(function(g) {
-                if (!g.pending) return true;
-                changed = true;
-                if (recovered) {
-                    pbLog('☁️ กู้รายการช่วงหลุด ' + fmtGapTime(g.start) + '–' + fmtGapTime(g.end) + ' ครบแล้ว', 'm');
-                    return false;
-                }
-                delete g.pending;
-                return true;
-            });
-            if (changed) { saveInboxGaps(); renderInboxGapBar(); }
         }
 
         function fmtGapTime(ts) {
@@ -1426,7 +1457,7 @@
         function renderInboxGapBar() {
             var bar = document.getElementById('inboxGapBar');
             if (!bar) return;
-            var show = _inboxGaps.filter(function(g) { return g.end && !g.pending; });
+            var show = _inboxGaps.filter(function(g) { return g.end; });
             if (!show.length) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
             bar.innerHTML = show.map(function(g) {
                 return '<div class="gap-item"><span>⚠️ ' + fmtGapTime(g.start) + '–' + fmtGapTime(g.end) +
@@ -1458,6 +1489,106 @@
             }
             renderInboxGapBar();
         });
+
+        // ------------------------------------------
+        // inboxSeen — กันซ้ำระดับ 1 ด้วย eventId (Firebase กับวงเน็ตมาจาก macro เดียวกัน eventId เดียวกัน)
+        // { [eventId]: { at, recordTs, channels: [...] } } เก็บย้อนหลัง 500 รายการ
+        // ------------------------------------------
+        var _inboxSeen = (function() {
+            try { return JSON.parse(localStorage.getItem('inboxSeen')) || {}; } catch(e) { return {}; }
+        })();
+        function saveInboxSeen() {
+            var ids = Object.keys(_inboxSeen);
+            if (ids.length > 500) {
+                ids.sort(function(a, b) { return (_inboxSeen[a].at || 0) - (_inboxSeen[b].at || 0); });
+                ids.slice(0, ids.length - 500).forEach(function(id) { delete _inboxSeen[id]; });
+            }
+            localStorage.setItem('inboxSeen', JSON.stringify(_inboxSeen));
+        }
+        function findRecordByTs(ts) {
+            if (!ts) return null;
+            for (var i = records.length - 1; i >= 0; i--) if (records[i].ts === ts) return records[i];
+            return null;
+        }
+        // บันทึกว่ารายการนี้ได้รับการยืนยันจากช่องทาง ch ด้วย (สำหรับ ✓✓ ในตาราง)
+        function addRecordChannel(rec, ch) {
+            if (!rec) return;
+            if (!rec.channels) rec.channels = rec.via ? [rec.via] : [];
+            if (rec.channels.indexOf(ch) > -1) return;
+            rec.channels.push(ch);
+            localStorage.setItem('posUltimateRecords', JSON.stringify(records));
+            renderTable();
+        }
+
+        // ==========================================
+        // ingestMoneyEvent — จุดรวมทุกช่องทาง: { channel, id, eventId, title, body, app, ts }
+        // ตรวจ keyword → extractMoney → detectSource (โค้ดเดิม) → กันซ้ำ → pbInject
+        // ==========================================
+        function ingestMoneyEvent(evt) {
+            if (!evt) return;
+            var ch = evt.channel;
+            var icon = CHANNEL_ICONS[ch] || '';
+            try {
+                var title = String(evt.title || '');
+                var body = String(evt.body || '');
+                var appName = String(evt.app || '');
+
+                // ระดับ 1: eventId ตรงกัน = เหตุการณ์เดียวกันแน่นอน ไม่บันทึกซ้ำ แค่เพิ่มช่องทางที่ยืนยัน
+                if (evt.eventId && _inboxSeen[evt.eventId]) {
+                    var seen = _inboxSeen[evt.eventId];
+                    if (seen.channels.indexOf(ch) < 0) { seen.channels.push(ch); saveInboxSeen(); }
+                    addRecordChannel(findRecordByTs(seen.recordTs), ch);
+                    pbLog(icon + ' ⏭️ ซ้ำกับรายการที่รับแล้ว (eventId ' + escapeHTML(evt.eventId) + ')', 'i');
+                    return;
+                }
+                if (evt.eventId) { _inboxSeen[evt.eventId] = { at: Date.now(), recordTs: null, channels: [ch] }; saveInboxSeen(); }
+
+                pbLog(icon + ' [RECV] ' + escapeHTML(title.substring(0, 30)) + ' | ' + escapeHTML(body.substring(0, 50)), 'i');
+
+                var full = title + ' ' + body + ' ' + appName;
+                if (!isMoneyNotification(full)) { pbLog(icon + ' [SKIP] ไม่ใช่แจ้งเตือนเงินเข้า', 'i'); return; }
+                var amt = extractMoney(full);
+                if (!amt) { pbLog(icon + ' [FAIL] อ่านยอดไม่ได้: ' + escapeHTML(full.substring(0, 80)), 'e'); return; }
+                var src = detectSource(full);
+                if (!src) { src = 'fallback'; pbLog(icon + ' [WARN] ไม่รู้แหล่งที่มา → ใช้ fallback', 'w'); }
+
+                var rec = pbInject(amt, src, title, body, { channel: ch, eventId: evt.eventId || '' });
+                if (rec && evt.eventId) { _inboxSeen[evt.eventId].recordTs = rec.ts; saveInboxSeen(); }
+            } finally {
+                // Firebase: ยืนยันว่าประมวลผลแล้ว → main เลื่อน cursor, ครั้งหน้าไม่ดึงซ้ำ
+                if (ch === 'fb' && evt.id) {
+                    var last = localStorage.getItem('fbInboxLastKey') || '';
+                    if (evt.id > last) localStorage.setItem('fbInboxLastKey', evt.id);
+                    if (window.heroWindow && window.heroWindow.inboxAck) window.heroWindow.inboxAck(evt.id);
+                }
+            }
+        }
+
+        if (window.heroWindow && window.heroWindow.onInboxEvent) {
+            window.heroWindow.onInboxEvent(ingestMoneyEvent);
+            window.heroWindow.onInboxLog(function(m) { if (m) pbLog(m.msg, m.type); });
+            window.heroWindow.onInboxCursor(function(c) {
+                if (c && c.lastKey && c.lastKey > (localStorage.getItem('fbInboxLastKey') || '')) localStorage.setItem('fbInboxLastKey', c.lastKey);
+            });
+            window.heroWindow.onInboxBackfill(function(r) {
+                if (!r) return;
+                if (r.ok) {
+                    if (r.count) pbLog('☁️ ดึงรายการค้างจาก Firebase: ' + r.count + ' รายการ', 'm');
+                    inboxOnChannelUp('fb', true);
+                } else {
+                    pbLog('☁️ ดึงรายการค้างไม่สำเร็จ: ' + escapeHTML(r.reason || ''), 'w');
+                }
+            });
+            window.heroWindow.onInboxStatus(function(s) {
+                if (!s) return;
+                var prev = inboxStatus.fb.state;
+                inboxStatus = s;
+                var now = s.fb.state;
+                if (s.fb.enabled && now !== 'ok' && (prev === 'ok' || now === 'err')) inboxOnChannelDown('fb');
+                if (typeof updateCombinedLed === 'function') updateCombinedLed();
+            });
+        }
+        document.addEventListener('DOMContentLoaded', sendInboxConfig);
 
         if (window.heroWindow && window.heroWindow.onNetworkChanged) {
             window.heroWindow.onNetworkChanged(function(info) {

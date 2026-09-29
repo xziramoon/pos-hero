@@ -1,0 +1,18 @@
+{
+  "rules": {
+    "pos_hero_inbox": {
+      ".read": false,
+      ".write": false,
+      "$key": {
+        ".read": "$key.length >= 32",
+        ".write": "$key.length >= 32",
+        "events": {
+          ".indexOn": ["ts"],
+          "$id": {
+            ".validate": "newData.hasChildren(['eventId','text','ts'])"
+          }
+        }
+      }
+    }
+  }
+}

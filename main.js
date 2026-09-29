@@ -934,3 +934,333 @@ function startNetworkWatcher() {
     mainWindow?.webContents.send('force-reconnect-pushbullet');
   }, NETWORK_POLL_MS).unref();
 }
+
+// ==========================================
+// 📥 Inbox — ช่องทางรับแจ้งเตือนเงินเข้าจากมือถือ (MacroDroid) แบบทนเน็ตร้านดับ
+// ==========================================
+// ช่องทางหลัก: Firebase Realtime Database (REST + SSE — ไม่ใช้ Firebase JS SDK)
+// ช่องทางสำรอง: UDP broadcast ในวงเน็ตเดียวกัน (LanInbox ด้านล่าง)
+// ทุกช่องทางส่ง event รูปเดียวกันไป renderer ผ่าน IPC 'inbox:event':
+//   { channel: 'fb'|'lan', id: pushId|null, eventId, title, body, app, ts }
+// renderer (app.js ส่วนที่ 12) เป็นคนกันซ้ำข้ามช่องทาง / แยกยอด / ดึงชื่อ ด้วยโค้ดเดิมของ Pushbullet
+const INBOX_KEY_RE = /^[A-Za-z0-9_-]{32,}$/;
+let inboxConfig = { dbUrl: '', inboxKey: '', fbEnabled: false, lastKey: '', lanEnabled: false, lanPort: 47800 };
+
+function sendInbox(channel, payload) {
+  mainWindow?.webContents.send(channel, payload);
+}
+function inboxLog(msg, type) {
+  sendInbox('inbox:log', { msg, type: type || 'i' });
+}
+
+// SSE ของ Firebase: บรรทัด "event: put" / "data: {...}" คั่นแต่ละ event ด้วยบรรทัดว่าง
+class SseStream {
+  constructor(url, { onOpen, onEvent, onClose }) {
+    this.url = url;
+    this.onOpen = onOpen;
+    this.onEvent = onEvent;
+    this.onClose = onClose;
+    this.abort = null;
+    this.closed = false;
+  }
+
+  async start() {
+    this.abort = new AbortController();
+    let reason = 'สตรีมปิด';
+    try {
+      const res = await fetch(this.url, { headers: { Accept: 'text/event-stream' }, signal: this.abort.signal });
+      if (!res.ok) throw new Error('http ' + res.status);
+      this.onOpen();
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let evType = null;
+      let dataLines = [];
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) > -1) {
+          const line = buf.slice(0, nl).replace(/\r$/, '');
+          buf = buf.slice(nl + 1);
+          if (line === '') {
+            if (evType) {
+              let data = null;
+              try { data = JSON.parse(dataLines.join('\n')); } catch (e) { data = null; }
+              this.onEvent(evType, data);
+            }
+            evType = null;
+            dataLines = [];
+          } else if (line.startsWith('event:')) {
+            evType = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataLines.push(line.slice(5).trim());
+          }
+        }
+      }
+    } catch (e) {
+      reason = e.name === 'AbortError' ? 'ยกเลิก' : e.message;
+    }
+    if (!this.closed) { this.closed = true; this.onClose(reason); }
+  }
+
+  stop() {
+    this.closed = true;
+    try { this.abort?.abort(); } catch (e) { /* ปิดไปแล้ว */ }
+  }
+}
+
+// ------------------------------------------
+// FirebaseInbox — ช่องทางหลัก
+// ------------------------------------------
+const FB_WATCHDOG_MS = 45 * 1000;              // Firebase ส่ง keep-alive ทุก ~30 วิ
+const FB_BACKOFF_MS = [2000, 4000, 8000, 16000, 30000];
+const FB_RETENTION_MS = 2 * 24 * 60 * 60 * 1000; // เก็บแจ้งเตือนดิบไว้ 2 วัน
+const FB_CLEANUP_EVERY_MS = 24 * 60 * 60 * 1000;
+const PUSH_CHARS = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz';
+
+// push id ของ Firebase ขึ้นต้นด้วยเวลา (ms) 8 ตัวอักษร — ใช้สร้าง cursor เริ่มต้นเป็น "ตอนนี้"
+// ครั้งแรกที่เปิดใช้ กันดึงแจ้งเตือนเก่าย้อนหลัง 2 วันมาบันทึกซ้ำ
+function pushIdPrefixForTime(ms) {
+  let s = '';
+  for (let i = 0; i < 8; i++) { s = PUSH_CHARS.charAt(ms % 64) + s; ms = Math.floor(ms / 64); }
+  return s;
+}
+
+const fbInbox = {
+  gen: 0,
+  stream: null,
+  hbStream: null,
+  state: 'off',          // off | connecting | ok | err
+  lastActivity: 0,
+  backoffIdx: 0,
+  reconnectTimer: null,
+  delivered: new Set(),  // pushId ที่ส่งให้ renderer แล้วในรอบนี้ (ยังไม่ ack ก็ไม่ส่งซ้ำ)
+  heartbeat: null,       // { ts, battery }
+  lastCleanupAt: 0
+};
+
+function fbConfigured() {
+  return inboxConfig.fbEnabled && /^https:\/\//.test(inboxConfig.dbUrl) && INBOX_KEY_RE.test(inboxConfig.inboxKey);
+}
+function fbBase() {
+  return inboxConfig.dbUrl.replace(/\/+$/, '') + '/pos_hero_inbox/' + inboxConfig.inboxKey;
+}
+function fbEventsQuery() {
+  return fbBase() + '/events.json?orderBy=' + encodeURIComponent('"$key"') + '&startAt=' + encodeURIComponent(JSON.stringify(inboxConfig.lastKey));
+}
+
+function fbSetState(state) {
+  if (fbInbox.state === state) return;
+  fbInbox.state = state;
+  sendInboxStatus();
+}
+
+function fbDeliver(id, v) {
+  if (!v || typeof v !== 'object' || id <= inboxConfig.lastKey || fbInbox.delivered.has(id)) return;
+  fbInbox.delivered.add(id);
+  sendInbox('inbox:event', {
+    channel: 'fb',
+    id,
+    eventId: String(v.eventId || ''),
+    title: String(v.title || ''),
+    body: String(v.text || ''),
+    app: String(v.app || v.pkg || ''),
+    ts: typeof v.ts === 'number' ? v.ts : Date.now()
+  });
+}
+function fbDeliverAll(obj) {
+  if (!obj || typeof obj !== 'object') return;
+  Object.keys(obj).sort().forEach(id => fbDeliver(id, obj[id]));
+}
+
+function fbStop() {
+  fbInbox.gen++;
+  if (fbInbox.reconnectTimer) { clearTimeout(fbInbox.reconnectTimer); fbInbox.reconnectTimer = null; }
+  fbInbox.stream?.stop();
+  fbInbox.hbStream?.stop();
+  fbInbox.stream = null;
+  fbInbox.hbStream = null;
+}
+
+function fbScheduleReconnect(reason) {
+  if (!fbConfigured()) return;
+  const wait = FB_BACKOFF_MS[Math.min(fbInbox.backoffIdx, FB_BACKOFF_MS.length - 1)];
+  fbInbox.backoffIdx++;
+  inboxLog(`☁️ Firebase หลุด (${reason}) → ต่อใหม่ใน ${wait / 1000} วิ`, 'w');
+  fbSetState('err');
+  if (fbInbox.reconnectTimer) clearTimeout(fbInbox.reconnectTimer);
+  fbInbox.reconnectTimer = setTimeout(() => { fbInbox.reconnectTimer = null; fbConnect(); }, wait);
+}
+
+async function fbConnect() {
+  fbStop();
+  if (!fbConfigured()) { fbSetState('off'); return; }
+  const gen = fbInbox.gen;
+  fbSetState('connecting');
+  fbInbox.lastActivity = Date.now();
+
+  if (!inboxConfig.lastKey) {
+    inboxConfig.lastKey = pushIdPrefixForTime(Date.now());
+    sendInbox('inbox:cursor', { lastKey: inboxConfig.lastKey });
+  }
+
+  // 1) ดึงของค้างทุกอย่างที่ key > lastKey — นี่คือการกู้รายการช่วงที่หลุด/ปิดแอปไป
+  try {
+    const res = await fetch(fbEventsQuery(), { signal: AbortSignal.timeout(15000) });
+    if (gen !== fbInbox.gen) return;
+    if (!res.ok) throw new Error('http ' + res.status + (res.status === 401 ? ' (กฎ Firebase ไม่อนุญาต)' : ''));
+    const data = await res.json();
+    if (gen !== fbInbox.gen) return;
+    const count = data && typeof data === 'object' ? Object.keys(data).filter(k => k > inboxConfig.lastKey).length : 0;
+    fbDeliverAll(data);
+    sendInbox('inbox:fb-backfill', { ok: true, count });
+  } catch (e) {
+    if (gen !== fbInbox.gen) return;
+    sendInbox('inbox:fb-backfill', { ok: false, reason: e.message });
+    fbScheduleReconnect('ดึงของค้างไม่ได้: ' + e.message);
+    return;
+  }
+
+  // 2) เปิด SSE รับรายการใหม่แบบ realtime
+  const stream = new SseStream(fbEventsQuery(), {
+    onOpen: () => {
+      if (gen !== fbInbox.gen) return;
+      fbInbox.backoffIdx = 0;
+      fbInbox.lastActivity = Date.now();
+      fbSetState('ok');
+    },
+    onEvent: (type, msg) => {
+      if (gen !== fbInbox.gen) return;
+      fbInbox.lastActivity = Date.now();
+      if (type === 'keep-alive') return;
+      if (type === 'cancel' || type === 'auth_revoked') {
+        stream.stop();
+        fbScheduleReconnect(type === 'cancel' ? 'ไม่มีสิทธิ์อ่าน (ตรวจกฎ Firebase)' : 'auth_revoked');
+        return;
+      }
+      if (!msg || typeof msg.path !== 'string') return;
+      if (type === 'put') {
+        if (msg.path === '/') fbDeliverAll(msg.data);
+        else if (/^\/[^/]+$/.test(msg.path)) fbDeliver(msg.path.slice(1), msg.data);
+      } else if (type === 'patch' && msg.path === '/') {
+        fbDeliverAll(msg.data);
+      }
+    },
+    onClose: (reason) => {
+      if (gen !== fbInbox.gen) return;
+      fbScheduleReconnect(reason);
+    }
+  });
+  fbInbox.stream = stream;
+  stream.start();
+
+  // 3) heartbeat ของมือถือดักจับ (MacroDroid PUT ทุก 5 นาที) ฟังแยกอีกสตรีม
+  const hbStream = new SseStream(fbBase() + '/heartbeat.json', {
+    onOpen: () => {},
+    onEvent: (type, msg) => {
+      if (gen !== fbInbox.gen || !msg || typeof msg.path !== 'string') return;
+      fbInbox.lastActivity = Date.now();
+      if (type === 'put' && msg.path === '/') fbInbox.heartbeat = msg.data && typeof msg.data === 'object' ? { ...msg.data } : null;
+      else if ((type === 'put' || type === 'patch') && msg.path === '/ts') fbInbox.heartbeat = { ...(fbInbox.heartbeat || {}), ts: msg.data };
+      else if (type === 'patch' && msg.path === '/') fbInbox.heartbeat = { ...(fbInbox.heartbeat || {}), ...(msg.data || {}) };
+      else return;
+      sendInboxStatus();
+    },
+    onClose: () => { /* สตรีมหลักเป็นคนตัดสิน reconnect อยู่แล้ว */ }
+  });
+  fbInbox.hbStream = hbStream;
+  hbStream.start();
+
+  if (Date.now() - fbInbox.lastCleanupAt > FB_CLEANUP_EVERY_MS) setTimeout(fbCleanup, 60 * 1000);
+}
+
+// ลบ events ที่เก่ากว่า 2 วัน (ต้องมี ".indexOn": ["ts"] ในกฎ ไม่งั้น Firebase ตอบ 400)
+async function fbCleanup() {
+  if (!fbConfigured() || fbInbox.state !== 'ok') return;
+  fbInbox.lastCleanupAt = Date.now();
+  try {
+    const cutoff = Date.now() - FB_RETENTION_MS;
+    const url = fbBase() + '/events.json?orderBy=' + encodeURIComponent('"ts"') + '&endAt=' + cutoff;
+    const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error('http ' + res.status + (res.status === 400 ? ' (ยังไม่ได้ใส่ .indexOn ts ในกฎ?)' : ''));
+    const data = await res.json();
+    const ids = data && typeof data === 'object' ? Object.keys(data) : [];
+    if (!ids.length) return;
+    const patch = {};
+    ids.forEach(id => { patch[id] = null; });
+    const del = await fetch(fbBase() + '/events.json', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+      signal: AbortSignal.timeout(20000)
+    });
+    if (!del.ok) throw new Error('http ' + del.status);
+    inboxLog(`☁️ ล้างแจ้งเตือนเก่ากว่า 2 วันใน Firebase ${ids.length} รายการ`, 'i');
+  } catch (e) {
+    inboxLog('☁️ ล้างข้อมูลเก่าใน Firebase ไม่สำเร็จ: ' + e.message, 'w');
+  }
+}
+setInterval(() => {
+  if (Date.now() - fbInbox.lastCleanupAt > FB_CLEANUP_EVERY_MS) fbCleanup();
+}, 60 * 60 * 1000).unref();
+
+// watchdog: ไม่มี keep-alive/ข้อมูลใดๆ เกิน 45 วิ = สตรีมค้างเงียบๆ → ตัดแล้วต่อใหม่
+setInterval(() => {
+  if ((fbInbox.state === 'ok' || fbInbox.state === 'connecting') && fbConfigured() &&
+      Date.now() - fbInbox.lastActivity > FB_WATCHDOG_MS) {
+    inboxLog('☁️ ไม่มีสัญญาณจาก Firebase เกิน 45 วิ → ต่อใหม่', 'w');
+    fbConnect();
+  }
+}, 5000).unref();
+
+networkChangeHooks.push(() => {
+  if (!fbConfigured()) return;
+  fbInbox.backoffIdx = 0;
+  fbConnect();
+});
+
+ipcMain.on('inbox:ack', (_event, { key } = {}) => {
+  if (typeof key === 'string' && key > inboxConfig.lastKey) inboxConfig.lastKey = key;
+});
+
+// ------------------------------------------
+// สถานะรวมส่งให้ renderer (ไฟ LED / tooltip)
+// ------------------------------------------
+function sendInboxStatus() {
+  sendInbox('inbox:status', {
+    fb: {
+      enabled: fbConfigured(),
+      state: fbInbox.state,
+      heartbeatTs: fbInbox.heartbeat && typeof fbInbox.heartbeat.ts === 'number' ? fbInbox.heartbeat.ts : 0,
+      battery: fbInbox.heartbeat ? fbInbox.heartbeat.battery : undefined
+    },
+    lan: lanStatusSnapshot()
+  });
+}
+setInterval(sendInboxStatus, 10000).unref();
+
+ipcMain.on('inbox:config', (_event, cfg = {}) => {
+  const prev = inboxConfig;
+  const port = parseInt(cfg.lanPort, 10);
+  inboxConfig = {
+    dbUrl: String(cfg.dbUrl || '').trim(),
+    inboxKey: String(cfg.inboxKey || '').trim(),
+    fbEnabled: !!cfg.fbEnabled,
+    lastKey: typeof cfg.lastKey === 'string' && cfg.lastKey > prev.lastKey ? cfg.lastKey : prev.lastKey,
+    lanEnabled: !!cfg.lanEnabled,
+    lanPort: port > 0 && port < 65536 ? port : 47800
+  };
+  // renderer เพิ่งโหลด/ตั้งค่าใหม่ — ส่งของค้างที่ยังไม่ ack ให้อีกรอบได้ (renderer กันซ้ำด้วย eventId เอง)
+  fbInbox.delivered.clear();
+  if (prev.dbUrl !== inboxConfig.dbUrl || prev.inboxKey !== inboxConfig.inboxKey) inboxConfig.lastKey = String(cfg.lastKey || '');
+  fbInbox.backoffIdx = 0;
+  fbConnect();
+  lanRestart();
+  sendInboxStatus();
+});
+
+// ช่องทางสำรองวงเน็ต (UDP) — ใส่ใน Phase 3
+function lanRestart() {}
+function lanStatusSnapshot() { return { enabled: false }; }
