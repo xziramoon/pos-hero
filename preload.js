@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('heroWindow', {
   notifyPbDisconnected: (downMinutes) => ipcRenderer.send('pb:disconnected-warning', downMinutes),
   pollMissedPushes: (token, sinceTs) => ipcRenderer.invoke('pb:poll-missed', { token, sinceTs }),
   onForceReconnect: (callback) => ipcRenderer.on('force-reconnect-pushbullet', () => callback()),
+  onNetworkChanged: (callback) => ipcRenderer.on('network-changed', (_event, info) => callback(info)),
   onPaymentEvent: (callback) => ipcRenderer.on('payment:event', (_event, payload) => callback(payload)),
   onRelayStatus: (callback) => ipcRenderer.on('relay:status', (_event, status) => callback(status)),
   getRelayInfo: () => ipcRenderer.invoke('relay:get-info'),

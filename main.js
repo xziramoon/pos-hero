@@ -317,6 +317,7 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   startRelayServer();
+  startNetworkWatcher();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -893,3 +894,43 @@ ipcMain.handle('relay:get-info', () => ({
   port: relayConfig.port,
   token: relayConfig.token
 }));
+
+// ==========================================
+// ตัวเฝ้าเครือข่าย (Phase 1) — สลับ Wi-Fi ร้าน → ฮอตสปอตมือถือ ไม่ทำให้ navigator.onLine เป็น
+// false เลย (มีเน็ตตลอด แค่เปลี่ยนการ์ด/IP) event 'online' ฝั่ง renderer จึงไม่ยิง และ socket เดิม
+// ค้างอยู่บน route เก่าจนกว่า watchdog จะจับได้ (~40 วิ) — เช็ค IPv4 ที่ไม่ใช่ internal ทุก 4 วิแทน
+// ถ้าชุด (ชื่อการ์ด + address) เปลี่ยน → บอกทุกช่องทางให้ต่อ/bind ใหม่ทันที
+// ==========================================
+const NETWORK_POLL_MS = 4000;
+const networkChangeHooks = []; // ช่องทางฝั่ง main (Firebase/UDP) ลงทะเบียนไว้เพื่อ reconnect/rebind
+let lastNetworkSig = null;
+
+function readNetworkSignature() {
+  const nets = os.networkInterfaces();
+  const parts = [];
+  const ips = [];
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        parts.push(name + '=' + net.address);
+        ips.push(net.address);
+      }
+    }
+  }
+  parts.sort();
+  return { sig: parts.join('|'), ips };
+}
+
+function startNetworkWatcher() {
+  lastNetworkSig = readNetworkSignature().sig;
+  setInterval(() => {
+    const { sig, ips } = readNetworkSignature();
+    if (sig === lastNetworkSig) return;
+    lastNetworkSig = sig;
+    for (const hook of networkChangeHooks) {
+      try { hook(ips); } catch (e) { console.error('[NET] hook error:', e); }
+    }
+    mainWindow?.webContents.send('network-changed', { ips });
+    mainWindow?.webContents.send('force-reconnect-pushbullet');
+  }, NETWORK_POLL_MS).unref();
+}

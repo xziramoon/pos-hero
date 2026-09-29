@@ -844,6 +844,7 @@
         if (window.heroWindow && window.heroWindow.onRelayStatus) {
             window.heroWindow.onRelayStatus(function(status) {
                 if (!status) return;
+                appRelayState = status.state;
                 if (status.state === 'ok') setPbStatus('🟢 มือถือเชื่อมต่อปกติ', 'ok');
                 else if (status.state === 'err') setPbStatus('🔴 ไม่ได้ยินจากมือถือ', 'err');
                 else setPbStatus('⏸️ รอมือถือเชื่อมต่อครั้งแรก', '');
@@ -920,21 +921,29 @@
             setPbWsStatus('🟡 กำลังเชื่อมต่อ...', 'warn');
 
             try {
-                pbWs = new WebSocket('wss://stream.pushbullet.com/websocket/' + pbToken);
+                // จับ socket ตัวนี้ไว้ใน closure — handler ของ socket ตัวเก่า (ที่ถูก close ไปตอนต่อใหม่)
+                // ยิง onclose ตามมาทีหลังแบบ async ถ้าไม่เช็คจะไปเขียนทับ pbWs ของตัวใหม่เป็น null
+                // แล้วสั่ง reconnect ซ้อนจนมี socket ค้างหลายตัว (รับ push ซ้ำ) — ยิ่งสำคัญตอนนี้ที่
+                // ต่อใหม่ทุกครั้งที่เครือข่ายเปลี่ยน
+                var ws = new WebSocket('wss://stream.pushbullet.com/websocket/' + pbToken);
+                pbWs = ws;
 
-                pbWs.onopen = function() {
+                ws.onopen = function() {
+                    if (pbWs !== ws) return;
                     pbDisconnectStart = 0; // [FIX] รีเซ็ตเวลา disconnect
                     pbLastWarnAt = 0;
                     pbLastActivity = Date.now();
                     setPbWsStatus('🟢 เชื่อมต่อแล้ว (รอแจ้งเตือน)', 'ok');
-                    pbLog('เชื่อมต่อสำเร็จ รอรับ push...', 'i');
+                    pbLog('🔗 เชื่อมต่อสำเร็จ รอรับ push...', 'i');
+                    inboxOnChannelUp('pb');
                     // [BACKFILL] จังหวะเพิ่งต่อ WS สำเร็จ มักตรงกับตอนมือถือเพิ่งตื่นจาก
                     // Doze/background throttling แล้ว flush queue แจ้งเตือนที่ค้างไป Pushbullet
                     // พอดี → เช็คย้อนหลังทันทีแทนที่จะรอรอบ interval ถัดไป
                     pollMissedPushes();
                 };
 
-                pbWs.onmessage = function(ev) {
+                ws.onmessage = function(ev) {
+                    if (pbWs !== ws) return;
                     pbLastActivity = Date.now(); // [FIX #13] ทุกข้อความที่เข้ามา (รวม nop) คือสัญญาณว่า socket ยังมีชีวิต
                     try {
                         const data = JSON.parse(ev.data);
@@ -950,18 +959,22 @@
                     } catch(e) { pbLog('[ERR] parse: ' + e.message, 'e'); }
                 };
 
-                pbWs.onclose = function() {
+                ws.onclose = function() {
+                    if (pbWs !== ws) return;
                     pbWs = null;
                     pbDisconnectStart = Date.now(); // [FIX] บันทึกเวลาตัดการเชื่อมต่อ
                     setPbWsStatus('🔴 ตัดการเชื่อมต่อ', 'err');
+                    inboxOnChannelDown('pb');
                     schedulePbReconnect();
                 };
 
-                pbWs.onerror = function(err) {
+                ws.onerror = function(err) {
+                    if (pbWs !== ws) return;
                     setPbWsStatus('❌ เชื่อมต่อล้มเหลว', 'err');
                     pbLog('ตรวจสอบ Token หรือเน็ต', 'e');
                     pbWs = null;
                     pbDisconnectStart = Date.now(); // [FIX] บันทึกเวลาตัดการเชื่อมต่อ
+                    inboxOnChannelDown('pb');
                     schedulePbReconnect();
                 };
 
@@ -1295,6 +1308,9 @@
         // [BACKFILL] pollMissedPushes — ตาข่ายนิรภัยสำรองจาก WS realtime
         // ดึง push ที่อาจตกหล่นจาก Pushbullet REST API มา backfill ผ่าน pipeline เดิม
         // (handlePbPush มี iden-dedup กันนับซ้ำกับของที่ WS realtime เก็บไปแล้วอยู่แล้ว)
+        // ⚠️ ข้อจำกัด: /v2/pushes คืนเฉพาะ push ที่เก็บบนเซิร์ฟเวอร์ — แจ้งเตือนธนาคารที่ "mirror"
+        // จากมือถือเป็น ephemeral ไม่ถูกเก็บ จึงกู้ไม่ได้ด้วย poll นี้ ช่วงที่ WS หลุด = รายการ mirror
+        // ช่วงนั้นหายถาวร (ช่องทาง Firebase inbox เป็นตัวกู้ส่วนนี้แทน, ดู ส่วนที่ 12)
         // ==========================================
         function getPbPollTs() {
             var v = parseInt(localStorage.getItem('lastPbPollTs'), 10);
@@ -1322,6 +1338,133 @@
         }
 
         setInterval(pollMissedPushes, 2 * 60 * 1000); // เช็คย้อนหลังทุก 2 นาทีเป็นพื้นฐาน
+
+        // ==========================================
+        // ส่วนที่ 12: 📥 INBOX — ช่องทางรับเงินเข้า + ช่วงหลุด (inboxGaps)
+        // ==========================================
+        // "ช่องทางหลัก" คือช่องทางที่ถ้าหลุดแล้วเราต้องสนใจว่ารายการช่วงนั้นหายไหม เก็บช่วงหลุด
+        // (start → end) ไว้ใน localStorage 'inboxGaps' (สูงสุด 20) — หลังต่อกลับได้:
+        //   - ช่องทางกู้ของค้างได้ (Firebase ดึงสำเร็จ) → ลบช่วงนั้นทิ้ง ไม่ต้องเตือน
+        //   - กู้ไม่ได้ (Pushbullet mirror) และไม่มีช่องทางอื่นทำงานคลุมช่วงนั้น → แถบเตือนให้ไปเช็คแอปธนาคาร
+        var CHANNEL_ICONS = { fb: '☁️', lan: '📶', pb: '🔗', app: '📱' };
+        var CHANNEL_NAMES = { fb: 'Firebase', lan: 'วงเน็ต', pb: 'Pushbullet', app: 'แอป POS Relay' };
+        var INBOX_GAP_MIN_MS = 10 * 1000;   // หลุดสั้นกว่านี้ (reconnect ปกติ) ไม่นับเป็นช่วงหลุด
+        var INBOX_ALIVE_TICK_MS = 30 * 1000; // บันทึก "ยังต่ออยู่" ไว้ เผื่อแอปถูกปิดไปทั้งตัว
+        var appRelayState = 'unconfigured';  // จาก main.js relay:status (android-app LAN relay)
+
+        var _inboxGaps = (function() {
+            try { return JSON.parse(localStorage.getItem('inboxGaps')) || []; } catch(e) { return []; }
+        })();
+        function saveInboxGaps() {
+            if (_inboxGaps.length > 20) _inboxGaps = _inboxGaps.slice(-20);
+            localStorage.setItem('inboxGaps', JSON.stringify(_inboxGaps));
+        }
+        function openInboxGap() {
+            for (var i = 0; i < _inboxGaps.length; i++) if (!_inboxGaps[i].end) return _inboxGaps[i];
+            return null;
+        }
+
+        function inboxPrimaryChannel() {
+            if (pbToken) return 'pb';
+            return null;
+        }
+        function inboxChannelIsUp(ch) {
+            if (ch === 'pb') return pbWsState === 'ok';
+            if (ch === 'app') return appRelayState === 'ok';
+            return false;
+        }
+        // มีช่องทางอื่น (ที่ไม่ใช่ตัวที่หลุด) ทำงานอยู่ไหม — ใช้ตัดสินว่าช่วงหลุดถูก "คลุม" แล้ว
+        function inboxOtherChannelAlive(except) {
+            return ['fb', 'lan', 'pb', 'app'].some(function(ch) { return ch !== except && inboxChannelIsUp(ch); });
+        }
+
+        function inboxOnChannelDown(ch) {
+            if (ch !== inboxPrimaryChannel() || openInboxGap()) return;
+            _inboxGaps.push({ start: Date.now(), end: null, channel: ch, covered: inboxOtherChannelAlive(ch) });
+            saveInboxGaps();
+        }
+
+        function inboxOnChannelUp(ch) {
+            var g = openInboxGap();
+            if (!g || ch !== inboxPrimaryChannel()) return;
+            g.end = Date.now();
+            if (g.end - g.start < INBOX_GAP_MIN_MS) {
+                _inboxGaps.splice(_inboxGaps.indexOf(g), 1);
+            } else if (ch === 'fb') {
+                g.pending = true; // รอผลดึงของค้าง (inboxResolvePendingGaps)
+            } else if (g.covered && inboxOtherChannelAlive(ch)) {
+                pbLog('ℹ️ ' + CHANNEL_ICONS[ch] + ' หลุดช่วง ' + fmtGapTime(g.start) + '–' + fmtGapTime(g.end) + ' แต่มีช่องทางอื่นทำงานคลุมอยู่', 'i');
+                _inboxGaps.splice(_inboxGaps.indexOf(g), 1);
+            }
+            saveInboxGaps();
+            renderInboxGapBar();
+        }
+
+        // ผลการดึงของค้างหลังต่อใหม่ — recovered=true แปลว่ารายการช่วงหลุดถูกกู้ครบแล้ว
+        function inboxResolvePendingGaps(recovered) {
+            var changed = false;
+            _inboxGaps = _inboxGaps.filter(function(g) {
+                if (!g.pending) return true;
+                changed = true;
+                if (recovered) {
+                    pbLog('☁️ กู้รายการช่วงหลุด ' + fmtGapTime(g.start) + '–' + fmtGapTime(g.end) + ' ครบแล้ว', 'm');
+                    return false;
+                }
+                delete g.pending;
+                return true;
+            });
+            if (changed) { saveInboxGaps(); renderInboxGapBar(); }
+        }
+
+        function fmtGapTime(ts) {
+            var d = new Date(ts);
+            var hm = d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+            if (d.toDateString() !== new Date().toDateString()) hm = d.getDate() + '/' + (d.getMonth() + 1) + ' ' + hm;
+            return hm;
+        }
+
+        function renderInboxGapBar() {
+            var bar = document.getElementById('inboxGapBar');
+            if (!bar) return;
+            var show = _inboxGaps.filter(function(g) { return g.end && !g.pending; });
+            if (!show.length) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+            bar.innerHTML = show.map(function(g) {
+                return '<div class="gap-item"><span>⚠️ ' + fmtGapTime(g.start) + '–' + fmtGapTime(g.end) +
+                    ' ขาดการเชื่อมต่อ ตรวจยอดในแอปธนาคารช่วงนี้</span>' +
+                    '<button class="gap-ok" title="ตรวจแล้ว" onclick="dismissInboxGap(' + g.start + ')">✓</button></div>';
+            }).join('');
+            bar.style.display = 'block';
+        }
+
+        function dismissInboxGap(start) {
+            _inboxGaps = _inboxGaps.filter(function(g) { return g.start !== start; });
+            saveInboxGaps();
+            renderInboxGapBar();
+        }
+
+        // แอปถูกปิดไปทั้งตัว (ปิดเครื่อง/ไฟดับ) ก็คือช่วงหลุดเหมือนกัน — จด "ยังต่ออยู่" ทุก 30 วิ
+        // ตอนเปิดแอปใหม่ถ้าห่างเกิน 1 นาที เปิดช่วงหลุดตั้งแต่ตอนนั้นไว้ รอช่องทางหลักต่อได้แล้วค่อยตัดสิน
+        setInterval(function() {
+            var ch = inboxPrimaryChannel();
+            if (ch && inboxChannelIsUp(ch) && !openInboxGap()) localStorage.setItem('inboxLastAliveTs', String(Date.now()));
+        }, INBOX_ALIVE_TICK_MS);
+
+        document.addEventListener('DOMContentLoaded', function() {
+            var lastAlive = parseInt(localStorage.getItem('inboxLastAliveTs'), 10);
+            var ch = inboxPrimaryChannel();
+            if (!openInboxGap() && ch && lastAlive && (Date.now() - lastAlive) > 60 * 1000) {
+                _inboxGaps.push({ start: lastAlive, end: null, channel: ch, covered: false });
+                saveInboxGaps();
+            }
+            renderInboxGapBar();
+        });
+
+        if (window.heroWindow && window.heroWindow.onNetworkChanged) {
+            window.heroWindow.onNetworkChanged(function(info) {
+                var ips = (info && info.ips && info.ips.length) ? info.ips.join(', ') : 'ไม่มี';
+                pbLog('🌐 เครือข่ายเปลี่ยน (IP: ' + escapeHTML(ips) + ') → ต่อทุกช่องทางใหม่', 'w');
+            });
+        }
 
         // ==========================================
         // Initialize App
