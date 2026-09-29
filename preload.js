@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('heroWindow', {
   onNetworkChanged: (callback) => ipcRenderer.on('network-changed', (_event, info) => callback(info)),
   setInboxConfig: (cfg) => ipcRenderer.send('inbox:config', cfg),
   inboxAck: (key) => ipcRenderer.send('inbox:ack', { key }),
+  firewallCheck: () => ipcRenderer.invoke('inbox:firewall-check'),
+  firewallAdd: (port) => ipcRenderer.invoke('inbox:firewall-add', port),
   onInboxEvent: (callback) => ipcRenderer.on('inbox:event', (_event, evt) => callback(evt)),
   onInboxStatus: (callback) => ipcRenderer.on('inbox:status', (_event, status) => callback(status)),
   onInboxLog: (callback) => ipcRenderer.on('inbox:log', (_event, m) => callback(m)),

@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const http = require('http');
 const crypto = require('crypto');
+const dgram = require('dgram');
 const { execFile } = require('child_process');
 
 app.setAppUserModelId('com.xziramoon.poshero');
@@ -1261,6 +1262,150 @@ ipcMain.on('inbox:config', (_event, cfg = {}) => {
   sendInboxStatus();
 });
 
-// ช่องทางสำรองวงเน็ต (UDP) — ใส่ใน Phase 3
-function lanRestart() {}
-function lanStatusSnapshot() { return { enabled: false }; }
+// ------------------------------------------
+// LanInbox — ช่องทางสำรอง: UDP broadcast ในวงเน็ตเดียวกัน (ไม่ต้องมีอินเทอร์เน็ต)
+// ------------------------------------------
+// MacroDroid ยิง JSON ไปที่ 255.255.255.255:<port>:
+//   {"k":"<INBOX_KEY 8 ตัวแรก>","eventId":"...","title":"...","text":"...","app":"...","ts":<ms>}
+//   heartbeat: {"k":"...","hb":1,"battery":<0-100>}
+// k ไม่ตรง → ทิ้งเงียบ (อาจเป็นร้านข้างๆ ที่ใช้พอร์ตเดียวกัน), JSON พัง → เตือนใน log ไม่เกินนาทีละครั้ง
+const LAN_MAX_PACKET = 8 * 1024;
+const lanInbox = {
+  socket: null,
+  bound: false,
+  error: '',
+  lastPacketAt: 0,
+  heartbeat: null,     // { at, battery }
+  lastWarnAt: 0
+};
+
+function lanWarn(msg) {
+  if (Date.now() - lanInbox.lastWarnAt < 60 * 1000) return;
+  lanInbox.lastWarnAt = Date.now();
+  inboxLog('📶 ' + msg, 'w');
+}
+
+function lanStop() {
+  const sock = lanInbox.socket;
+  lanInbox.socket = null;
+  lanInbox.bound = false;
+  if (sock) { try { sock.close(); } catch (e) { /* ปิดไปแล้ว */ } }
+}
+
+function lanHandlePacket(msg, rinfo) {
+  if (msg.length > LAN_MAX_PACKET) { lanWarn(`packet ใหญ่เกินจาก ${rinfo.address} — ทิ้ง`); return; }
+  let data;
+  try { data = JSON.parse(msg.toString('utf8')); } catch (e) { data = null; }
+  if (!data || typeof data !== 'object') {
+    lanWarn(`ได้รับ packet ที่อ่านไม่ได้ (JSON พัง) จาก ${rinfo.address} — ตรวจการ escape ข้อความใน MacroDroid`);
+    return;
+  }
+  if (String(data.k || '') !== inboxConfig.inboxKey.slice(0, 8)) return;
+
+  lanInbox.lastPacketAt = Date.now();
+  if (data.hb) {
+    lanInbox.heartbeat = { at: Date.now(), battery: data.battery };
+    sendInboxStatus();
+    return;
+  }
+  if (typeof data.text !== 'string' || !data.eventId) {
+    lanWarn(`packet จาก ${rinfo.address} ข้อมูลไม่ครบ (ต้องมี eventId และ text)`);
+    return;
+  }
+  sendInbox('inbox:event', {
+    channel: 'lan',
+    id: null,
+    eventId: String(data.eventId),
+    title: String(data.title || ''),
+    body: data.text,
+    app: String(data.app || ''),
+    ts: Number(data.ts) || Date.now()
+  });
+  sendInboxStatus();
+}
+
+function lanRestart() {
+  lanStop();
+  lanInbox.error = '';
+  if (!inboxConfig.lanEnabled) { sendInboxStatus(); return; }
+  if (!INBOX_KEY_RE.test(inboxConfig.inboxKey)) {
+    lanInbox.error = 'ยังไม่มี Inbox Key';
+    sendInboxStatus();
+    return;
+  }
+  const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+  lanInbox.socket = sock;
+  sock.on('error', (err) => {
+    if (lanInbox.socket !== sock) return;
+    lanInbox.error = err.code === 'EADDRINUSE' ? `พอร์ต ${inboxConfig.lanPort} ถูกใช้อยู่` : err.message;
+    inboxLog('📶 วงเน็ต: เปิดรับไม่ได้ — ' + lanInbox.error, 'e');
+    lanStop();
+    sendInboxStatus();
+  });
+  sock.on('message', (msg, rinfo) => {
+    if (lanInbox.socket === sock) lanHandlePacket(msg, rinfo);
+  });
+  sock.bind(inboxConfig.lanPort, '0.0.0.0', () => {
+    if (lanInbox.socket !== sock) return;
+    lanInbox.bound = true;
+    try { sock.setBroadcast(true); } catch (e) { /* ไม่จำเป็นต่อการรับ */ }
+    sendInboxStatus();
+  });
+}
+
+function lanStatusSnapshot() {
+  return {
+    enabled: inboxConfig.lanEnabled,
+    bound: lanInbox.bound,
+    port: inboxConfig.lanPort,
+    error: lanInbox.error,
+    lastPacketAt: lanInbox.lastPacketAt,
+    heartbeatAt: lanInbox.heartbeat ? lanInbox.heartbeat.at : 0,
+    battery: lanInbox.heartbeat ? lanInbox.heartbeat.battery : undefined,
+    ips: getLanIPs()
+  };
+}
+
+// เปลี่ยนการ์ด/IP (Wi-Fi ร้าน ↔ ฮอตสปอต) → close + bind ใหม่ ให้ได้ยิน broadcast ของวงใหม่
+networkChangeHooks.push(() => {
+  if (inboxConfig.lanEnabled) lanRestart();
+});
+
+// ------------------------------------------
+// Windows Firewall — ฮอตสปอตใหม่มักถูกจัดเป็นเครือข่าย "Public" แต่กฎ allow ที่ Windows ถาม
+// ตอนเปิดแอปครั้งแรกมักครอบแค่ Private → UDP ถูกบล็อกเงียบๆ จึงเพิ่มกฎเองแบบ -Profile Any
+// ------------------------------------------
+const FIREWALL_RULE_NAME = 'POS Hero LAN Inbox';
+
+function runPowerShell(command, timeout) {
+  return new Promise((resolve) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command],
+      { windowsHide: true, timeout: timeout || 20000 },
+      (err, stdout, stderr) => resolve({ ok: !err, stdout: String(stdout || ''), stderr: String(stderr || err?.message || '') }));
+  });
+}
+
+ipcMain.handle('inbox:firewall-check', async () => {
+  const r = await runPowerShell(
+    `$r = Get-NetFirewallRule -DisplayName '${FIREWALL_RULE_NAME}' -ErrorAction SilentlyContinue; ` +
+    `if ($r) { ($r | Get-NetFirewallPortFilter | Select-Object -ExpandProperty LocalPort) -join ',' } else { 'NONE' }`);
+  if (!r.ok) return { ok: false, reason: r.stderr.trim() };
+  const out = r.stdout.trim();
+  if (out === 'NONE' || out === '') return { ok: true, exists: false, ports: [] };
+  return { ok: true, exists: true, ports: out.split(',').map(s => s.trim()).filter(Boolean) };
+});
+
+ipcMain.handle('inbox:firewall-add', async (_event, rawPort) => {
+  const port = parseInt(rawPort, 10);
+  if (!(port > 0 && port < 65536)) return { ok: false, reason: 'พอร์ตไม่ถูกต้อง' };
+  // คำสั่งที่รันด้วยสิทธิ์ admin ส่งแบบ -EncodedCommand กันปัญหา quote ซ้อนหลายชั้น
+  const inner =
+    `Remove-NetFirewallRule -DisplayName '${FIREWALL_RULE_NAME}' -ErrorAction SilentlyContinue; ` +
+    `New-NetFirewallRule -DisplayName '${FIREWALL_RULE_NAME}' -Direction Inbound -Protocol UDP -LocalPort ${port} -Action Allow -Profile Any | Out-Null`;
+  const encoded = Buffer.from(inner, 'utf16le').toString('base64');
+  const r = await runPowerShell(
+    `Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-EncodedCommand','${encoded}'`,
+    120000);
+  if (!r.ok) return { ok: false, reason: /cancel/i.test(r.stderr) ? 'ยกเลิกการขอสิทธิ์ admin' : r.stderr.trim() };
+  return { ok: true };
+});

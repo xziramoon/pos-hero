@@ -1155,6 +1155,20 @@
         // [FIX #9] pbInject — รวมจาก Override Patch + แก้ Dedup
         // [FIX #4] ลด Dedup Window จาก 10 → 3 วินาที + ใช้ Signature ที่เฉพาะเจาะจงกว่า
         // ==========================================
+        // ชื่อรายการอัตโนมัติ — [FIX] ดึงชื่อให้สั้นกระชับ (regex เดิม แยกออกมาให้โหมดทดสอบใช้ดูผลได้ด้วย)
+        function pbShortName(fullTextToParse) {
+            var shortName = "";
+            var match = fullTextToParse.match(/จาก\s*(.*?)(?:\s*วันที่|\s*เวลา|\s*จำนวน|\s*ยอด|$)/);
+            if (match && match[1]) {
+                shortName = match[1].trim();
+            } else {
+                shortName = fullTextToParse.trim().substring(0, 15);
+            }
+            if (shortName.length > 25) shortName = shortName.substring(0, 25) + '...';
+            if (!shortName || shortName === "") shortName = "ลูกค้าโอน";
+            return shortName;
+        }
+
         // meta (optional) = { channel, eventId, sig } — มาจาก ingestMoneyEvent (ส่วนที่ 12)
         // คืนค่า record ที่บันทึกลงตาราง (หรือ null ถ้าข้าม/ไม่ได้บันทึกลงตาราง)
         function pbInject(amount, srcType, rawTitle, rawBody, meta) {
@@ -1196,18 +1210,7 @@
             var doRecon = cfg['recon' + mapKey.charAt(0).toUpperCase() + mapKey.slice(1)];
             if (doRecon === undefined) doRecon = true;
 
-            // ชื่อรายการอัตโนมัติ — [FIX] ดึงชื่อให้สั้นกระชับ
-            var shortName = "";
-            var match = fullTextToParse.match(/จาก\s*(.*?)(?:\s*วันที่|\s*เวลา|\s*จำนวน|\s*ยอด|$)/);
-            if (match && match[1]) {
-                shortName = match[1].trim();
-            } else {
-                shortName = fullTextToParse.trim().substring(0, 15);
-            }
-            if (shortName.length > 25) shortName = shortName.substring(0, 25) + '...';
-            if (!shortName || shortName === "") shortName = "ลูกค้าโอน";
-
-            var recordName = shortName;
+            var recordName = pbShortName(fullTextToParse);
             var saved = null;
 
             // 1. ใส่เข้าตารางหลัก POS
@@ -1412,8 +1415,14 @@
             if (pbToken && inboxCfg.pbEnabled) return 'pb';
             return null;
         }
+        var INBOX_HEARD_WINDOW_MS = 12 * 60 * 1000; // heartbeat ทุก 5 นาที เผื่อพลาด 1 รอบ
+        function lanLastHeard() {
+            var l = inboxStatus.lan || {};
+            return Math.max(l.lastPacketAt || 0, l.heartbeatAt || 0);
+        }
         function inboxChannelIsUp(ch) {
             if (ch === 'fb') return inboxStatus.fb.state === 'ok';
+            if (ch === 'lan') return !!(inboxStatus.lan && inboxStatus.lan.enabled && inboxStatus.lan.bound && (Date.now() - lanLastHeard()) < INBOX_HEARD_WINDOW_MS);
             if (ch === 'pb') return pbWsState === 'ok';
             if (ch === 'app') return appRelayState === 'ok';
             return false;
@@ -1546,6 +1555,18 @@
                 pbLog(icon + ' [RECV] ' + escapeHTML(title.substring(0, 30)) + ' | ' + escapeHTML(body.substring(0, 50)), 'i');
 
                 var full = title + ' ' + body + ' ' + appName;
+
+                // โหมดทดสอบ: title ขึ้นต้น TEST (ทุกช่องทาง) หรือกดปุ่ม "โหมดทดสอบ" ไว้ → แสดงผลอย่างเดียว ไม่บันทึก
+                if (/^\s*TEST/i.test(title) || inboxTestArmed) {
+                    disarmInboxTestMode();
+                    var tAmt = isMoneyNotification(full) ? extractMoney(full) : null;
+                    var tSrc = detectSource(full) || 'fallback';
+                    var tName = pbShortName((body + ' ' + title).replace(/\n/g, ' '));
+                    pbLog('🧪 ' + icon + ' ทดสอบ ' + escapeHTML(CHANNEL_NAMES[ch] || ch) + ': ยอด ' + (tAmt ? tAmt.toLocaleString('en-US') + ' ฿' : 'อ่านไม่ได้') +
+                          ' · แหล่ง ' + tSrc + ' · ชื่อ "' + escapeHTML(tName) + '" (ไม่บันทึกลงตาราง)', 'm');
+                    return;
+                }
+
                 if (!isMoneyNotification(full)) { pbLog(icon + ' [SKIP] ไม่ใช่แจ้งเตือนเงินเข้า', 'i'); return; }
                 var amt = extractMoney(full);
                 if (!amt) { pbLog(icon + ' [FAIL] อ่านยอดไม่ได้: ' + escapeHTML(full.substring(0, 80)), 'e'); return; }
@@ -1562,6 +1583,28 @@
                     if (window.heroWindow && window.heroWindow.inboxAck) window.heroWindow.inboxAck(evt.id);
                 }
             }
+        }
+
+        // ------------------------------------------
+        // โหมดทดสอบ — รับ event ถัดไป (ช่องทางไหนก็ได้) แล้วแสดงผลใน log โดยไม่บันทึกลงตาราง
+        // ------------------------------------------
+        var inboxTestArmed = false;
+        var inboxTestTimer = null;
+        function armInboxTestMode() {
+            inboxTestArmed = true;
+            if (inboxTestTimer) clearTimeout(inboxTestTimer);
+            inboxTestTimer = setTimeout(function() {
+                if (inboxTestArmed) { disarmInboxTestMode(); pbLog('🧪 หมดเวลาโหมดทดสอบ (ไม่มีแจ้งเตือนเข้ามาใน 5 นาที)', 'w'); }
+            }, 5 * 60 * 1000);
+            pbLog('🧪 โหมดทดสอบ: รอแจ้งเตือนถัดไป — จะแสดงผลอย่างเดียว ไม่บันทึกลงตาราง', 'w');
+            var b = document.getElementById('btnInboxTest');
+            if (b) b.textContent = '🧪 รอแจ้งเตือนทดสอบ...';
+        }
+        function disarmInboxTestMode() {
+            inboxTestArmed = false;
+            if (inboxTestTimer) { clearTimeout(inboxTestTimer); inboxTestTimer = null; }
+            var b = document.getElementById('btnInboxTest');
+            if (b) b.textContent = '🧪 โหมดทดสอบ';
         }
 
         if (window.heroWindow && window.heroWindow.onInboxEvent) {
