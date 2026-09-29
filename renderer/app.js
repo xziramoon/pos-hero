@@ -673,14 +673,8 @@
                 el.innerHTML = html;
                 el.className = 'pb-status ' + (cls || '');
             }
-            // Glanceable LED echoing the same state — one in the full titlebar,
-            // one in the mini HUD — so the connection can be read without
-            // opening the reconciliation modal that #pbStatus lives in.
-            const plainText = html.replace(/<[^>]*>/g, '');
-            const led = document.getElementById('pbLed');
-            if (led) { led.className = 'pb-led ' + (cls || ''); led.title = 'มือถือ: ' + plainText; }
-            const miniLed = document.getElementById('miniPbLed');
-            if (miniLed) { miniLed.className = 'mini-pb-led ' + (cls || ''); miniLed.title = 'มือถือ: ' + plainText; }
+            // ไฟ LED (#pbLed / #miniPbLed) เป็นไฟรวมทุกช่องทางแล้ว — ดู updateCombinedLed() ส่วนที่ 12
+            if (typeof updateCombinedLed === 'function') updateCombinedLed();
         }
 
         function pbLog(msg, type) {
@@ -849,6 +843,7 @@
             window.heroWindow.onRelayStatus(function(status) {
                 if (!status) return;
                 appRelayState = status.state;
+                // setPbStatus ด้านล่างเรียก updateCombinedLed ให้อยู่แล้ว
                 if (status.state === 'ok') setPbStatus('🟢 มือถือเชื่อมต่อปกติ', 'ok');
                 else if (status.state === 'err') setPbStatus('🔴 ไม่ได้ยินจากมือถือ', 'err');
                 else setPbStatus('⏸️ รอมือถือเชื่อมต่อครั้งแรก', '');
@@ -910,6 +905,7 @@
             var el = document.getElementById('pbWsStatus');
             if (el) { el.innerHTML = html; el.className = 'pb-status ' + (cls || ''); }
             pbWsState = cls === 'ok' ? 'ok' : cls === 'warn' ? 'connecting' : cls === 'err' ? 'err' : 'off';
+            if (typeof updateCombinedLed === 'function') updateCombinedLed();
         }
 
         // ==========================================
@@ -1016,12 +1012,8 @@
                 pbWs.close();
             } else if (pbToken && !pbWs && pbDisconnectStart && (Date.now() - pbDisconnectStart) > 30000) {
                 pbLog('🔴 Warning: ไม่ได้ยินเตือนนานเกิน 30 วินาที! ตรวจสอบ Pushbullet', 'e');
-                // เด้ง native notification เตือน (ซ้ำได้ทุก 5 นาทีถ้ายังหลุดต่อเนื่อง) เพราะ pbLog
-                // จะไม่มีใครเห็นเลยตอนหน้าต่างถูกย่อ/ซ่อนอยู่ใน tray
-                if (window.heroWindow && window.heroWindow.notifyPbDisconnected && (Date.now() - pbLastWarnAt) > 5 * 60 * 1000) {
-                    pbLastWarnAt = Date.now();
-                    window.heroWindow.notifyPbDisconnected(Math.round((Date.now() - pbDisconnectStart) / 60000));
-                }
+                // native notification ย้ายไปยิงตาม "ไฟรวม" แทน (checkCombinedAlert, ส่วนที่ 12) —
+                // Pushbullet หลุดอย่างเดียวแต่ Firebase/วงเน็ตยังรับได้ ไม่ต้องเด้งเตือน
             }
         }, 10000);
 
@@ -1671,6 +1663,94 @@
             });
         }
         document.addEventListener('DOMContentLoaded', sendInboxConfig);
+
+        // ------------------------------------------
+        // ไฟรวม (#pbLed / #miniPbLed) + ไฟแยกรายช่องทางในกล่องตั้งค่า
+        //   🟢 Firebase ต่ออยู่ + heartbeat มือถือไม่เกิน 12 นาที
+        //   🟡 Firebase ใช้ไม่ได้ แต่วงเน็ตได้ยินภายใน 12 นาที / Pushbullet ต่ออยู่ / แอป POS Relay ต่ออยู่
+        //   🔴 ไม่มีช่องทางไหนทำงาน   ⚪ ยังไม่ได้ตั้งค่าช่องทางไหนเลย
+        // ------------------------------------------
+        function agoText(ts) {
+            if (!ts) return 'ยังไม่เคยได้ยิน';
+            var m = Math.floor((Date.now() - ts) / 60000);
+            return m < 1 ? 'ได้ยินล่าสุดเมื่อครู่' : 'ได้ยินล่าสุด ' + m + ' นาทีก่อน';
+        }
+        function fbHeartbeatFresh() {
+            var hb = inboxStatus.fb.heartbeatTs;
+            return !!hb && (Date.now() - hb) < INBOX_HEARD_WINDOW_MS;
+        }
+        function channelLedStates() {
+            var fb = inboxStatus.fb || {};
+            var lan = inboxStatus.lan || {};
+            var pbOn = !!(pbToken && inboxCfg.pbEnabled);
+            var s = {};
+
+            if (!fbIsConfigured()) s.fb = { cls: '', text: 'ปิดอยู่' };
+            else if (fb.state === 'ok' && fbHeartbeatFresh()) s.fb = { cls: 'ok', text: 'ต่ออยู่' + (fb.battery != null ? ' (แบตมือถือ ' + fb.battery + '%)' : '') };
+            else if (fb.state === 'ok') s.fb = { cls: 'warn', text: 'ต่ออยู่ แต่มือถือดักจับเงียบ (heartbeat ' + (fb.heartbeatTs ? Math.floor((Date.now() - fb.heartbeatTs) / 60000) + ' นาทีก่อน' : 'ยังไม่เคยมา') + ')' };
+            else if (fb.state === 'connecting') s.fb = { cls: 'warn', text: 'กำลังเชื่อมต่อ' };
+            else s.fb = { cls: 'err', text: 'หลุด' };
+
+            if (!lan.enabled) s.lan = { cls: '', text: 'ปิดอยู่' };
+            else if (lan.error) s.lan = { cls: 'err', text: 'เปิดรับไม่ได้ — ' + lan.error };
+            else if (inboxChannelIsUp('lan')) s.lan = { cls: 'ok', text: agoText(lanLastHeard()) };
+            else s.lan = { cls: 'warn', text: 'รอฟังพอร์ต ' + (lan.port || '') + ' — ' + agoText(lanLastHeard()) };
+
+            if (!pbOn) s.pb = { cls: '', text: 'ปิดอยู่' };
+            else if (pbWsState === 'ok') s.pb = { cls: 'ok', text: 'ต่ออยู่' };
+            else if (pbWsState === 'connecting') s.pb = { cls: 'warn', text: 'กำลังเชื่อมต่อ' };
+            else s.pb = { cls: 'err', text: 'หลุด' };
+
+            if (appRelayState === 'ok') s.app = { cls: 'ok', text: 'ต่ออยู่' };
+            else if (appRelayState === 'err') s.app = { cls: 'err', text: 'เงียบ' };
+            else s.app = { cls: '', text: 'ไม่ได้ใช้' };
+            return s;
+        }
+
+        var combinedLedState = '';
+        var combinedErrSince = 0;
+        var combinedLastAlertAt = 0;
+        function updateCombinedLed() {
+            if (typeof inboxStatus === 'undefined' || !inboxStatus) return;
+            var s = channelLedStates();
+            var fbWorking = s.fb.cls === 'ok';
+            var backupWorking = inboxChannelIsUp('lan') || s.pb.cls === 'ok' || appRelayState === 'ok';
+            var anyConfigured = s.fb.text !== 'ปิดอยู่' || s.lan.text !== 'ปิดอยู่' || s.pb.text !== 'ปิดอยู่' || appRelayState !== 'unconfigured';
+            var cls = fbWorking ? 'ok' : backupWorking ? 'warn' : anyConfigured ? 'err' : '';
+
+            var parts = ['fb', 'lan', 'pb'].map(function(ch) { return CHANNEL_ICONS[ch] + ' ' + s[ch].text; });
+            if (appRelayState !== 'unconfigured') parts.push(CHANNEL_ICONS.app + ' ' + s.app.text);
+            var tip = parts.join(' · ');
+
+            var led = document.getElementById('pbLed');
+            if (led) { led.className = 'pb-led ' + cls; led.title = tip; }
+            var miniLed = document.getElementById('miniPbLed');
+            if (miniLed) { miniLed.className = 'mini-pb-led ' + cls; miniLed.title = tip; }
+
+            ['fb', 'lan', 'pb', 'app'].forEach(function(ch) {
+                var dot = document.getElementById('chLed_' + ch);
+                if (dot) { dot.className = 'ch-led ' + s[ch].cls; dot.title = s[ch].text; }
+                var txt = document.getElementById('chLedText_' + ch);
+                if (txt) txt.textContent = s[ch].text;
+            });
+
+            if (cls === 'err') { if (!combinedErrSince) combinedErrSince = Date.now(); }
+            else combinedErrSince = 0;
+            combinedLedState = cls;
+            checkCombinedAlert();
+        }
+
+        // เด้ง native notification เมื่อไฟรวมแดงเกิน 1 นาที (ซ้ำได้ทุก 5 นาทีถ้ายังแดงต่อเนื่อง) —
+        // pbLog ไม่มีใครเห็นตอนหน้าต่างถูกย่อ/ซ่อนอยู่ใน tray
+        function checkCombinedAlert() {
+            if (!combinedErrSince || (Date.now() - combinedErrSince) < 60 * 1000) return;
+            if ((Date.now() - combinedLastAlertAt) < 5 * 60 * 1000) return;
+            combinedLastAlertAt = Date.now();
+            if (window.heroWindow && window.heroWindow.notifyPbDisconnected) {
+                window.heroWindow.notifyPbDisconnected(Math.max(1, Math.round((Date.now() - combinedErrSince) / 60000)));
+            }
+        }
+        setInterval(updateCombinedLed, 10000);
 
         if (window.heroWindow && window.heroWindow.onNetworkChanged) {
             window.heroWindow.onNetworkChanged(function(info) {

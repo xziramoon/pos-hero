@@ -614,11 +614,12 @@ ipcMain.handle('pb:poll-missed', async (_event, { token, sinceTs }) => {
   }
 });
 
+// ยิงจาก renderer เมื่อ "ไฟรวม" ทุกช่องทางเป็นแดงเกิน 1 นาที (ไม่ใช่แค่ Pushbullet หลุด)
 ipcMain.on('pb:disconnected-warning', (_event, downMinutes) => {
   if (!Notification.isSupported()) return;
   const notif = new Notification({
-    title: '⚠️ Pushbullet ขาดการเชื่อมต่อ',
-    body: `ไม่ได้รับสัญญาณมา ${downMinutes} นาทีแล้ว อาจพลาดยอดเงินเข้า — ลองเปิดมือถือ/เช็คเน็ตแล้วเปิดแอปนี้ขึ้นมาดู`,
+    title: '⚠️ ไม่มีช่องทางรับเงินเข้าที่ทำงาน',
+    body: `Firebase / วงเน็ต / Pushbullet เงียบทั้งหมดมา ${downMinutes} นาทีแล้ว อาจพลาดยอดเงินเข้า — เช็คเน็ตคอม/มือถือดักจับ แล้วเปิดแอปนี้ขึ้นมาดู`,
     icon: path.join(__dirname, 'build', 'icon.ico'),
     urgency: 'critical'
   });
@@ -701,9 +702,7 @@ setInterval(() => {
 let lastRelayActivity = 0;
 let relayEverSeen = false;
 let relayIsDown = false;
-let lastRelayDownNotifyAt = 0;
 const RELAY_OK_WINDOW_MS = 130 * 1000; // ~2 heartbeat รอบ (60s/รอบ) ของ android-app เผื่อ jitter/หลุด 1 ครั้ง
-const RELAY_DOWN_NOTIFY_REPEAT_MS = 5 * 60 * 1000; // เตือนซ้ำได้ทุก 5 นาทีถ้ายังไม่ฟื้น (เท่าของเดิม)
 
 function sendRelayStatus() {
   const state = !relayEverSeen ? 'unconfigured' : (relayIsDown ? 'err' : 'ok');
@@ -719,18 +718,8 @@ setInterval(() => {
     relayIsDown = nowDown;
     sendRelayStatus();
   }
-  if (relayIsDown && Notification.isSupported() && (Date.now() - lastRelayDownNotifyAt) > RELAY_DOWN_NOTIFY_REPEAT_MS) {
-    lastRelayDownNotifyAt = Date.now();
-    const downMinutes = Math.round(downFor / 60000);
-    const notif = new Notification({
-      title: '⚠️ ไม่ได้รับสัญญาณจากมือถือ',
-      body: `ไม่ได้ยินจากแอป POS Relay บนมือถือมา ${downMinutes} นาทีแล้ว อาจพลาดยอดเงินเข้า — เช็คว่ามือถือยังเปิดแอปอยู่/ต่อ WiFi วงเดียวกับเครื่องนี้`,
-      icon: path.join(__dirname, 'build', 'icon.ico'),
-      urgency: 'critical'
-    });
-    notif.on('click', () => { mainWindow?.show(); mainWindow?.focus(); refreshTrayMenu(); });
-    notif.show();
-  }
+  // native notification เตือนหลุดย้ายไปยิงตาม "ไฟรวม" ทุกช่องทางใน renderer แล้ว
+  // (pb:disconnected-warning) — relay นี้เงียบแต่ Firebase/วงเน็ตยังรับได้ ไม่ต้องเด้งเตือน
 }, 10000);
 
 function handleRelayRequest(req, res) {

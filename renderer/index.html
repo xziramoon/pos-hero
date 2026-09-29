@@ -200,6 +200,13 @@
                 <div style="font-size:11px; color:#666; margin-bottom:8px;">
                     รองรับ: SCB, K PLUS, Krungsri, Bangkok Bank, TrueMoney, เป๋าตัง
                 </div>
+                <!-- ไฟแยกรายช่องทาง (ไฟรวมอยู่ที่ titlebar/mini HUD) — app.js updateCombinedLed() -->
+                <div class="ch-leds">
+                    <span class="ch-led-item"><span class="ch-led" id="chLed_fb"></span>☁️ Firebase</span>
+                    <span class="ch-led-item"><span class="ch-led" id="chLed_lan"></span>📶 วงเน็ต</span>
+                    <span class="ch-led-item"><span class="ch-led" id="chLed_pb"></span>🔗 Pushbullet</span>
+                    <span class="ch-led-item"><span class="ch-led" id="chLed_app"></span>📱 POS Relay</span>
+                </div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
                     <span id="pbStatus" class="pb-status">⏸️ รอมือถือเชื่อมต่อครั้งแรก</span>
                 </div>
