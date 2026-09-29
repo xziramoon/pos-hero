@@ -165,7 +165,7 @@
                 </div>
             </div>
 
-            <div class="drawer-summary" style="margin-top:15px; background: #f0fdf4; border-color: #bbf7d0;">
+            <div class="drawer-summary recon-green-box" style="margin-top:15px; background: #f0fdf4; border-color: #bbf7d0;">
                 <div style="font-weight:700; color:var(--success); margin-bottom:10px; border-bottom:1px solid #bbf7d0; padding-bottom:5px;">🏦 ยอดในบัญชีธนาคาร / เป๋าตัง (ที่เข้าจริง)</div>
                 <div class="ds-row">
                     <span>ธนาคาร / บัญชีที่ 1:</span>
@@ -192,13 +192,17 @@
             </div>
 
 
-            <!-- มือถือดักแจ้งเตือน (LAN Relay) — แทนที่ Pushbullet -->
-            <div class="pb-box">
-                <div style="font-weight:800; color: var(--purple); margin-bottom:8px; font-size:14px;">
-                    📱 มือถือดักแจ้งเตือน — ดักจับเอง (ไม่ผ่าน Pushbullet)
-                </div>
-                <div style="font-size:11px; color:#666; margin-bottom:8px;">
-                    รองรับ: SCB, K PLUS, Krungsri, Bangkok Bank, TrueMoney, เป๋าตัง
+            <!-- มือถือดักแจ้งเตือน (LAN Relay) — แทนที่ Pushbullet
+                 [ข้อ 14] ห่อด้วย <details> พับเก็บโดยปริยาย เพราะร้านส่วนใหญ่ใช้แค่ "📥 ช่องทางรับเงินเข้า"
+                 ด้านล่าง (Firebase/วงเน็ต) — กล่องนี้เป็นระบบเดิม/ทางเลือกเสริม ไม่ใช่ทางหลัก
+                 (app.js เปิดกล่องนี้ให้อัตโนมัติเมื่อ POS Relay หรือ Pushbullet เชื่อมต่อได้จริง/เจอปัญหา
+                 จริง — ดู setPbStatus/setPbWsStatus) -->
+            <details class="pb-box" id="legacyRelayBox">
+                <summary style="cursor:pointer; font-weight:800; color: var(--purple); font-size:14px; list-style:none;">
+                    📱 มือถือดักแจ้งเตือน (ระบบเสริม/เดิม) <span style="font-weight:400; font-size:11px; color:var(--hero-text-faint);">— แตะเพื่อดู/ซ่อน</span>
+                </summary>
+                <div style="font-size:11px; color:#666; margin:8px 0;">
+                    รองรับ: SCB, K PLUS, Krungsri, Bangkok Bank, TrueMoney, เป๋าตัง, ถุงเงิน
                 </div>
                 <!-- ไฟแยกรายช่องทาง (ไฟรวมอยู่ที่ titlebar/mini HUD) — app.js updateCombinedLed() -->
                 <div class="ch-leds">
@@ -248,7 +252,7 @@
                 <div class="hint-box" style="margin-top:8px; font-size:11px; border-left-color: var(--danger);">
                     ⚠️ กันพลาดยอด: มือถือต้องเปิดแอป "POS Relay" ค้างไว้ + <b>ปิด "การจัดการแบตเตอรี่ / จำกัดพื้นหลัง"</b> (Battery optimization) สำหรับแอปนั้นด้วย ไม่งั้น Android จะฆ่าแอปทิ้งเงียบๆ เมื่อไม่ได้ใช้นาน ทำให้แจ้งเตือนธนาคารไม่ถูกส่งมาที่เครื่องนี้เลย
                 </div>
-            </div>
+            </details>
 
             <!-- 📥 ช่องทางรับเงินเข้า — Firebase (หลัก) / วงเน็ตร้าน UDP (สำรอง) / Pushbullet (เดิม)
                  ค่าเก็บใน localStorage 'inboxConfig' แล้วส่งให้ main.js — ดู app.js ส่วนที่ 12 -->
@@ -259,11 +263,15 @@
                 <div class="inbox-sub"><span>☁️ Firebase (ช่องทางหลัก)</span>
                     <label class="inbox-switch"><input type="checkbox" id="inboxFbEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
                 <input type="text" id="inboxDbUrl" class="pb-token" placeholder="Database URL เช่น https://xxxx-default-rtdb.asia-southeast1.firebasedatabase.app" onchange="saveInboxSettings()">
+                <div class="inbox-field-err" id="inboxFbUrlErr"></div>
                 <div class="inbox-row">
                     <input type="text" id="inboxKey" class="pb-token" placeholder="Inbox Key (สุ่มยาว 32 ตัวขึ้นไป)" onchange="saveInboxSettings()" spellcheck="false">
                     <button class="pb-btn" style="background:#7c3aed;" title="สุ่ม Inbox Key ใหม่" onclick="genInboxKey()">🎲</button>
-                    <button class="pb-btn" style="background:#475569;" title="คัดลอก" onclick="copyInboxText(document.getElementById('inboxKey').value)">📋</button>
+                    <button class="pb-btn" style="background:#475569;" title="คัดลอก" onclick="copyInboxText(document.getElementById('inboxKey').value, this)">📋</button>
                 </div>
+                <div class="inbox-field-err" id="inboxFbKeyErr"></div>
+                <!-- [ข้อ 11] สถานะของกล่องนี้เอง (ไม่ต้องเดาจากไฟ titlebar หรือไล่ดู log) -->
+                <div class="inbox-status" id="inboxFbStatusLine"></div>
 
                 <div class="inbox-sub"><span>📶 วงเน็ตร้าน (สำรอง ไม่ต้องมีเน็ต)</span>
                     <label class="inbox-switch"><input type="checkbox" id="inboxLanEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
@@ -274,17 +282,34 @@
                 </div>
                 <div class="inbox-note">IP คอมตอนนี้: <b id="inboxLanIps">-</b></div>
                 <div class="inbox-note">ไฟร์วอลล์: <span id="inboxFwStatus">กำลังตรวจ...</span></div>
+                <div class="inbox-status" id="inboxLanStatusLine"></div>
 
                 <div class="inbox-sub"><span>🔗 Pushbullet (ช่องทางเดิม)</span>
                     <label class="inbox-switch"><input type="checkbox" id="inboxPbEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
+                <div class="inbox-status" id="inboxPbStatusLine"></div>
 
                 <div class="pb-btns" style="margin-top:10px;">
                     <button class="pb-btn" style="background: var(--purple);" onclick="openMacroInfoModal()">📱 ข้อมูลสำหรับตั้ง MacroDroid</button>
                     <button class="pb-btn" id="btnInboxTest" style="background:#0f766e;" onclick="armInboxTestMode()">🧪 โหมดทดสอบ</button>
                 </div>
+                <!-- [ข้อ 10] ผลโหมดทดสอบต้องเห็นชิดปุ่มเลย ไม่ใช่ต้องเลื่อนไปดู log ด้านบน -->
+                <div class="inbox-note" id="inboxTestResult" style="min-height:14px; margin-top:6px;"></div>
             </div>
 
             <button id="btnReconSubmit" class="btn-action" style="background: var(--cyan-recon);" onclick="executePrintRecon()" disabled>🖨️ พิมพ์ใบกระทบยอด</button>
+        </div>
+    </div>
+
+    <!-- [ข้อ 1] MODAL แก้ไขชื่อ/ยอด — แทนที่ prompt() ที่ Electron ไม่รองรับ (renderer/app.js editName/editAmount) -->
+    <div id="editModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 360px;">
+            <div class="modal-header"><h3 id="editModalTitle" style="color: var(--primary);">✏️ แก้ไขรายการ</h3><button class="close-btn" onclick="closeEditModal()">×</button></div>
+            <div class="ds-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+                <label id="editModalLabel" for="editModalInput" style="font-size:13px; color:var(--hero-text-dim);"></label>
+                <input type="text" id="editModalInput" class="input-field" style="box-sizing:border-box;" onkeydown="if(event.key==='Enter'){event.preventDefault(); confirmEditModal();}">
+            </div>
+            <button class="btn-action" style="background: var(--primary);" onclick="confirmEditModal()">✔ บันทึก</button>
+            <button class="btn-cancel-60" onclick="closeEditModal()">✕ ยกเลิก</button>
         </div>
     </div>
 
@@ -554,6 +579,11 @@
     <!-- ✨ v5: Undo Toast + Restore file input -->
     <div id="undoToast" class="undo-toast no-print"><span id="undoToastMsg">ลบรายการแล้ว</span><button onclick="undoDelete()">↩️ กู้คืน</button></div>
     <input type="file" id="restoreFile" accept=".json,application/json" style="display:none" onchange="restoreData(event)">
+
+    <!-- [ข้อ 7] element จริงท้าย body เผื่อพื้นที่พ้นแผงปุ่มลอยด้านล่าง (.floating-controls) — ความสูง
+         ตั้งด้วย CSS var --floatbar-h ที่ app.js's adjustFloatingBarSpace วัดจากของจริง ต้องเป็น
+         element ที่มีความสูงจริง (ไม่ใช่ margin/padding) ถึงจะถูกนับเข้า scrollHeight แน่นอน -->
+    <div id="floatbarSpacer" class="no-print" aria-hidden="true"></div>
 
     <!-- JAVASCRIPT CORE (unchanged logic from thai-pos-system) -->
     <script src="app.js"></script>

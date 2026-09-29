@@ -334,7 +334,9 @@
         background: linear-gradient(180deg, var(--hero-panel), var(--hero-panel-2));
         width: calc(100% - 16px);
         max-width: 480px;
-        margin: 10px auto 96px;
+        /* [ข้อ 7] พื้นที่เผื่อแผงปุ่มลอยย้ายไปอยู่ที่ body's padding-bottom แล้ว (เชื่อถือได้กว่า
+           margin-bottom ตรงนี้ ดูคอมเมนต์ที่ body) เหลือแค่ระยะห่างปกติ */
+        margin: 10px auto 16px;
         padding: 16px;
         border-radius: 6px;
         border-style: solid;
@@ -1022,4 +1024,50 @@ body.print-scale, body.print-scale * {
         margin: 4px 0 10px; user-select: text;
     }
     #macroInfoBody .macro-label { font-size: 12px; font-weight: 700; color: var(--hero-gold-bright); display: flex; justify-content: space-between; align-items: center; }
+
+    /* [ข้อ 7] ตัวเว้นพื้นที่จริงท้าย body (ไม่ใช่ margin/padding) — Chromium มีพฤติกรรมรู้จักกันดีว่า
+       margin-bottom ของ child ตัวสุดท้าย หรือ padding-bottom ของกล่องที่ overflow (overflow-y:auto)
+       จะไม่ถูกนับเข้า scrollHeight เมื่อเนื้อหาล้นเกินกล่องอยู่แล้ว (ลองมาแล้วทั้งสองแบบ เลื่อนสุดยัง
+       ไม่พ้นแผงปุ่มลอย) ต้องใช้ element จริงที่มีความสูงจริงแทนถึงจะถูกนับแน่นอน */
+    #floatbarSpacer { height: var(--floatbar-h, 96px); }
+
+    /* [ข้อ 17] titlebar แคบเกินกว่าจะพอดีกับข้อความยาว "TASKBAR RECON WIDGET" — โดนตัดครึ่งแบบ
+       "TASKBAR RECON WI…" ซึ่งอ่านไม่รู้เรื่องกว่าไม่มีเลย เป็นแค่คำโปรยประดับ (ชื่อจริงของแอปคือ
+       "POS HERO" ข้างหน้า) ซ่อนไปเลยที่จอแคบแทนการโชว์ข้อความถูกตัด */
+    @media (max-width: 460px) {
+        .hero-subtitle { display: none; }
+    }
+
+    /* [ข้อ 15] กล่อง "ยอดในบัญชีธนาคาร/เป๋าตัง" ใช้พื้นเขียวอ่อนคงที่ (ตั้งใจให้ตัดกับกล่อง POS สีฟ้า
+       ด้านบน) แต่ตัวหนังสือใน .modal-content สืบทอดสี --hero-text (ครีมสว่าง) มาจากธีมมืด พอไปวางบน
+       พื้นอ่อนแบบนี้เลยจางจนแทบมองไม่เห็น — บังคับให้ตัวหนังสือ/หัวข้อในกล่องนี้เป็นสีเข้มเสมอ */
+    .recon-green-box, .recon-green-box .ds-row span:first-child, .recon-green-box .ds-total span:first-child {
+        color: #14532d !important;
+    }
+
+    /* [ข้อ 11] สถานะของแต่ละช่องทางในกล่อง "📥 ช่องทางรับเงินเข้า" เอง — ใช้สีเดียวกับไฟ ch-led */
+    .inbox-status { font-size: 11px; font-weight: 600; margin-top: 3px; color: var(--hero-text-faint); }
+    .inbox-status.ok { color: #4ade80; }
+    .inbox-status.warn { color: #fde68a; }
+    .inbox-status.err { color: #fca5a5; }
+    .inbox-field-err { font-size: 11px; color: #fca5a5; margin-top: 2px; min-height: 0; }
+
+    /* [ข้อ 16] บรรทัด log ระดับ debug ([RECV]/[PARSE]/[FOUND]/eventId ดิบ ฯลฯ) — จางลงแทนการลบทิ้ง
+       เพื่อไม่ให้บังข้อความหลักที่แคชเชียร์ต้องอ่าน แต่ dev ยังไล่ปัญหาย้อนหลังได้ (ดู app.js's pbLog) */
+    #pbLog .pb-tech { opacity: 0.55; font-size: 10px; }
+
+    /* [ข้อ 13] ปุ่ม 📋 คัดลอก — ให้เห็นผลชัดบนปุ่มเอง ไม่ต้องเหลือบไปดู log (app.js's flashCopyButton) */
+    .pb-btn.copied { background: #16a34a !important; }
+
+    /* [ข้อ 6] ป้ายเล็กบอกว่ารายการนี้เป็นรายการที่กู้คืนภายหลัง (เวลาที่โชว์คือเวลาแจ้งเตือนเข้าจริง) */
+    .backfill-mark { font-size: 9px; color: var(--hero-gold); border: 1px solid var(--hero-border-dk); border-radius: 3px; padding: 0 3px; margin-left: 3px; white-space: nowrap; cursor: help; }
+
+    /* [ข้อ 14] "📱 มือถือดักแจ้งเตือน (ระบบเสริม/เดิม)" ตอนนี้เป็น <details> พับเก็บโดยปริยาย —
+       ให้หน้าตา summary เหมือน header เดิม (ลบลูกศรสามเหลี่ยมมาตรฐานของ browser ออก ใช้ลูกศรจาก
+       CSS เองแทนเพื่อบอกสถานะเปิด/ปิด) */
+    #legacyRelayBox { cursor: default; }
+    #legacyRelayBox > summary { outline: none; }
+    #legacyRelayBox > summary::-webkit-details-marker { display: none; }
+    #legacyRelayBox > summary::before { content: '▸ '; color: var(--hero-text-faint); }
+    #legacyRelayBox[open] > summary::before { content: '▾ '; }
 }

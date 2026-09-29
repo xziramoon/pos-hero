@@ -51,11 +51,19 @@
         .type-label:hover { background: #e2e8f0; color: #334155; }
         
         input[type="radio"] { display: none; }
-        
+
+        /* [ข้อ 8 feedback แอ๋ม] ปุ่มที่เลือกไม่เคยไฮไลต์เลย — ตัวเลือก radio จริงๆ ถูกซ้อนอยู่ *ข้างใน*
+           label (ดู index.html's .type-label) ไม่ใช่ sibling ก่อนหน้าแบบที่ selector "+" ด้านล่างนี้
+           คาดหวัง เลย match ไม่ได้สักครั้ง (คงไว้เผื่อ markup เปลี่ยนในอนาคต) — ใช้ :has() แทนซึ่งตรง
+           กับโครงสร้างจริง (Electron 32 = Chromium ใหม่พอรองรับแน่นอน) */
         input[type="radio"]:checked + .lbl-transfer { background-color: var(--success) !important; color: white !important; box-shadow: 0 4px 10px -2px rgba(22, 163, 74, 0.4); }
         input[type="radio"]:checked + .lbl-welfare { background-color: var(--info) !important; color: white !important; box-shadow: 0 4px 10px -2px rgba(2, 132, 199, 0.4); }
         input[type="radio"]:checked + .lbl-thaiplus { background-color: var(--green60) !important; color: white !important; box-shadow: 0 4px 10px -2px rgba(26, 122, 82, 0.4); }
         input[type="radio"]:checked + .lbl-expense { background-color: var(--danger) !important; color: white !important; box-shadow: 0 4px 10px -2px rgba(220, 38, 38, 0.4); }
+        .type-label.lbl-transfer:has(input[type="radio"]:checked) { background-color: var(--success) !important; color: white !important; box-shadow: 0 4px 10px -2px rgba(22, 163, 74, 0.4); }
+        .type-label.lbl-welfare:has(input[type="radio"]:checked) { background-color: var(--info) !important; color: white !important; box-shadow: 0 4px 10px -2px rgba(2, 132, 199, 0.4); }
+        .type-label.lbl-thaiplus:has(input[type="radio"]:checked) { background-color: var(--green60) !important; color: white !important; box-shadow: 0 4px 10px -2px rgba(26, 122, 82, 0.4); }
+        .type-label.lbl-expense:has(input[type="radio"]:checked) { background-color: var(--danger) !important; color: white !important; box-shadow: 0 4px 10px -2px rgba(220, 38, 38, 0.4); }
         
         .input-row { display: flex; gap: 8px; margin-bottom: 10px; }
         .input-field { padding: 12px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 16px; outline: none; width: 100%; font-family: 'Sarabun'; box-sizing: border-box; transition: 0.2s; }
@@ -232,7 +240,9 @@
         .toggle-body.open { display: block; }
 
         /* ✨ v5 UPGRADE: Undo Toast / Tab Count / Edit Amount */
-        .undo-toast { position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%) translateY(80px); background: #1e293b; color: #fff; padding: 12px 18px; border-radius: 10px; display: flex; align-items: center; gap: 14px; font-size: 14px; font-weight: 600; box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 999; opacity: 0; transition: all 0.25s ease; pointer-events: none; max-width: 90vw; }
+        /* [ข้อ 17] เดิม bottom:25px ตายตัวชนกับแผงปุ่มลอยที่ตอนนี้สูงกว่าเดิม (ปุ่มเยอะขึ้น) จนบัง
+           ปุ่มแถวล่างพอดี — ใช้ตัวแปรเดียวกับ .paper (--floatbar-h, ดู app.js's adjustFloatingBarSpace) */
+        .undo-toast { position: fixed; bottom: var(--floatbar-h, 25px); left: 50%; transform: translateX(-50%) translateY(80px); background: #1e293b; color: #fff; padding: 12px 18px; border-radius: 10px; display: flex; align-items: center; gap: 14px; font-size: 14px; font-weight: 600; box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 999; opacity: 0; transition: all 0.25s ease; pointer-events: none; max-width: 90vw; }
         .undo-toast.show { transform: translateX(-50%) translateY(0); opacity: 1; pointer-events: auto; }
         .undo-toast button { background: var(--warning); border: none; color: #000; font-weight: 800; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-family: 'Sarabun'; font-size: 13px; white-space: nowrap; }
         .tab-count { display: inline-block; background: rgba(0,0,0,0.12); border-radius: 10px; padding: 0 6px; font-size: 10px; margin-left: 4px; min-width: 12px; text-align: center; }
