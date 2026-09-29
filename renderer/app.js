@@ -1359,8 +1359,24 @@
                   'เงินโอนเข้า','โอนเงินเข้า','รับชำระ','ชำระเงิน','promptpay','พร้อมเพย์',
                   'สำเร็จ','โอนเงิน','ยอดเงิน','เงินโอนเข้าบัญชี','ชำระ','รับ',
                   'deposit','credit','payment','transaction'];
+        // แจ้งเตือนโฆษณา/โปรโมชันจากแอปธนาคาร (เช่น "รับสิทธิ์ส่วนลด 50 บาท...") มีคำว่า "รับ" + "บาท"
+        // เลยหลุด keyword ด้านบนแล้วถูกบันทึกเป็นเงินโอนเข้า — เจอตอนแคชเชียร์ทดลองใช้ จึงตัดทิ้งก่อน
+        // ยกเว้นข้อความมีคำที่ยืนยันว่าเป็นเงินโอนเข้าจริง (กันเงินเข้าจริงที่บังเอิญมีคำพวกนี้ในบันทึกช่วยจำหลุดหาย)
+        var AD_KEYWORDS = ['ส่วนลด','รับสิทธิ์','รับสิทธิ','สิทธิพิเศษ','โปรโมชั่น','โปรโมชัน','โปรฯ','แคชแบ็ก','แคชแบ็ค',
+                  'เงินคืน','คูปอง','คะแนนสะสม','พอยท์','ลุ้นรับ','ลุ้นรางวัล','แจกฟรี','ฟรี!','สินเชื่อ','ผ่อน 0',
+                  'ดอกเบี้ยพิเศษ','สมัครเลย','ดาวน์โหลด','อัปเดตแอป','อัพเดทแอป',
+                  'cashback','coupon','promotion','promo','discount','reward','points'];
+        var STRONG_MONEY_IN = ['เงินเข้า','รับโอน','เงินโอนเข้า','โอนเงินเข้า','ผู้โอน','received from','transfer from','money received'];
+        function isAdNotification(full) {
+            var t = (full || '').toLowerCase();
+            var hasAd = AD_KEYWORDS.some(function(k) { return t.indexOf(k) > -1; });
+            if (!hasAd) return false;
+            return !STRONG_MONEY_IN.some(function(k) { return t.indexOf(k) > -1; });
+        }
+
         function isMoneyNotification(full) {
             var t = (full || '').toLowerCase();
+            if (isAdNotification(t)) return false;
             for (var i = 0; i < MONEY_KEYWORDS.length; i++) {
                 if (t.indexOf(MONEY_KEYWORDS[i]) > -1) return true;
             }
@@ -1676,6 +1692,7 @@
                     return;
                 }
 
+                if (isAdNotification(full)) { pbLog(icon + ' ⏭️ ข้ามแจ้งเตือนโฆษณา/โปรโมชัน: ' + escapeHTML(full.substring(0, 60)), 'i'); return; }
                 if (!isMoneyNotification(full)) { pbLog(icon + ' [SKIP] ไม่ใช่แจ้งเตือนเงินเข้า', 'i'); return; }
                 var amt = extractMoney(full);
                 if (!amt) { pbLog(icon + ' [FAIL] อ่านยอดไม่ได้: ' + escapeHTML(full.substring(0, 80)), 'e'); return; }
