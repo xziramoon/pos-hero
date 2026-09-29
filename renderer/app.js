@@ -912,6 +912,10 @@
         // [FIX #6] WebSocket Connection + Heartbeat + Reconnect
         // ==========================================
         function connectPushbullet() {
+            if (typeof inboxCfg !== 'undefined' && inboxCfg && inboxCfg.pbEnabled === false) {
+                setPbWsStatus('⏸️ ปิดอยู่ (ตั้งค่าใน 📥 ช่องทางรับเงินเข้า)', '');
+                return;
+            }
             const input = document.getElementById('pbToken');
             pbToken = (input ? input.value : '').trim();
             if (!pbToken) { alert('⚠️ กรุณาใส่ Pushbullet Access Token'); return; }
@@ -1617,6 +1621,135 @@
         }
 
         // ------------------------------------------
+        // หน้าตั้งค่า "📥 ช่องทางรับเงินเข้า" (index.html #inboxBox)
+        // ------------------------------------------
+        function loadInboxForm() {
+            var set = function(id, prop, v) { var el = document.getElementById(id); if (el) el[prop] = v; };
+            set('inboxFbEnabled', 'checked', !!inboxCfg.fbEnabled);
+            set('inboxDbUrl', 'value', inboxCfg.dbUrl || '');
+            set('inboxKey', 'value', inboxCfg.inboxKey || '');
+            set('inboxLanEnabled', 'checked', !!inboxCfg.lanEnabled);
+            set('inboxLanPort', 'value', inboxCfg.lanPort || 47800);
+            set('inboxPbEnabled', 'checked', inboxCfg.pbEnabled !== false);
+        }
+
+        function saveInboxSettings() {
+            var val = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+            var chk = function(id) { var el = document.getElementById(id); return !!(el && el.checked); };
+            var next = {
+                dbUrl: val('inboxDbUrl').replace(/\/+$/, ''),
+                inboxKey: val('inboxKey'),
+                fbEnabled: chk('inboxFbEnabled'),
+                lanEnabled: chk('inboxLanEnabled'),
+                lanPort: parseInt(val('inboxLanPort'), 10) || 47800,
+                pbEnabled: chk('inboxPbEnabled')
+            };
+            if (next.dbUrl && !/^https:\/\//.test(next.dbUrl)) pbLog('☁️ Database URL ต้องขึ้นต้นด้วย https://', 'e');
+            if (next.inboxKey && !/^[A-Za-z0-9_-]{32,}$/.test(next.inboxKey)) pbLog('☁️ Inbox Key ต้องยาว 32 ตัวขึ้นไป (a-z A-Z 0-9 _ -) — กด 🎲 เพื่อสุ่ม', 'e');
+            if (next.lanPort < 1024 || next.lanPort > 65535) { next.lanPort = 47800; pbLog('📶 พอร์ตต้องอยู่ระหว่าง 1024–65535 → ใช้ 47800', 'w'); }
+            // เปลี่ยน URL/Key = inbox คนละที่ → เริ่ม cursor ใหม่ (ตั้งเป็น "ตอนนี้" ตอนต่อครั้งแรก)
+            if (next.dbUrl !== inboxCfg.dbUrl || next.inboxKey !== inboxCfg.inboxKey) localStorage.removeItem('fbInboxLastKey');
+            var pbChanged = next.pbEnabled !== inboxCfg.pbEnabled;
+            inboxCfg = next;
+            localStorage.setItem('inboxConfig', JSON.stringify(inboxCfg));
+            sendInboxConfig();
+            if (pbChanged) {
+                if (!inboxCfg.pbEnabled) { disconnectPushbullet(); setPbWsStatus('⏸️ ปิดอยู่ (ตั้งค่าใน 📥 ช่องทางรับเงินเข้า)', ''); }
+                else if (pbToken) connectPushbullet();
+            }
+            updateCombinedLed();
+            checkLanFirewall();
+        }
+
+        function genInboxKey() {
+            if (inboxCfg.inboxKey && !confirm('สุ่ม Inbox Key ใหม่?\n\nต้องไปแก้ key ใน MacroDroid บนมือถือให้ตรงกันด้วย ไม่งั้นจะรับเงินเข้าไม่ได้')) return;
+            var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            var bytes = new Uint8Array(40);
+            crypto.getRandomValues(bytes);
+            var key = '';
+            for (var i = 0; i < bytes.length; i++) key += chars.charAt(bytes[i] % chars.length);
+            document.getElementById('inboxKey').value = key;
+            saveInboxSettings();
+        }
+
+        function copyInboxText(text) {
+            if (!text) return;
+            var done = function() { pbLog('📋 คัดลอกแล้ว', 'i'); };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done, function() { copyInboxTextFallback(text); done(); });
+            } else { copyInboxTextFallback(text); done(); }
+        }
+        function copyInboxTextFallback(text) {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch(e) {}
+            document.body.removeChild(ta);
+        }
+
+        function checkLanFirewall() {
+            var el = document.getElementById('inboxFwStatus');
+            if (!el || !window.heroWindow || !window.heroWindow.firewallCheck) return;
+            window.heroWindow.firewallCheck().then(function(r) {
+                if (!r || !r.ok) { el.textContent = 'ตรวจไม่ได้' + (r && r.reason ? ' (' + r.reason + ')' : ''); return; }
+                var port = String(inboxCfg.lanPort || 47800);
+                if (!r.exists) el.textContent = '❌ ยังไม่มีกฎ — กด 🛡️ อนุญาตไฟร์วอลล์';
+                else if (r.ports.indexOf(port) < 0) el.textContent = '⚠️ มีกฎแต่เป็นพอร์ต ' + r.ports.join(',') + ' — กด 🛡️ ใหม่';
+                else el.textContent = '✅ อนุญาตพอร์ต ' + port + ' แล้ว (ทุกประเภทเครือข่าย)';
+            });
+        }
+
+        function addLanFirewallRule() {
+            if (!window.heroWindow || !window.heroWindow.firewallAdd) return;
+            var el = document.getElementById('inboxFwStatus');
+            if (el) el.textContent = '⏳ รอยืนยันสิทธิ์ admin...';
+            window.heroWindow.firewallAdd(inboxCfg.lanPort || 47800).then(function(r) {
+                if (r && r.ok) pbLog('🛡️ เพิ่มกฎไฟร์วอลล์ UDP ' + (inboxCfg.lanPort || 47800) + ' แล้ว', 'm');
+                else pbLog('🛡️ เพิ่มกฎไฟร์วอลล์ไม่สำเร็จ: ' + escapeHTML((r && r.reason) || ''), 'e');
+                checkLanFirewall();
+            });
+        }
+
+        function renderLanIps() {
+            var el = document.getElementById('inboxLanIps');
+            if (!el) return;
+            var ips = (inboxStatus.lan && inboxStatus.lan.ips) || [];
+            el.textContent = ips.length ? ips.join(', ') : 'ไม่พบ (ยังไม่ได้ต่อเครือข่าย)';
+        }
+
+        function openMacroInfoModal() {
+            var body = document.getElementById('macroInfoBody');
+            if (!body) return;
+            var url = inboxCfg.dbUrl || 'https://<Database URL>';
+            var key = inboxCfg.inboxKey || '<Inbox Key>';
+            var port = inboxCfg.lanPort || 47800;
+            var items = [
+                ['① HTTP POST (Firebase) — URL', url + '/pos_hero_inbox/' + key + '/events.json'],
+                ['① Body (JSON)', '{"eventId":"[lv=eventId]","title":"[not_title]","text":"[notification]","app":"[not_app_name]","pkg":"[not_app_package]","ts":{".sv":"timestamp"},"via":"fb"}'],
+                ['② UDP — ปลายทาง', '255.255.255.255 : ' + port],
+                ['② UDP — ข้อความ (JSON)', '{"k":"' + key.slice(0, 8) + '","eventId":"[lv=eventId]","title":"[not_title]","text":"[notification]","app":"[not_app_name]","ts":[system_time]}'],
+                ['③ Heartbeat ทุก 5 นาที — HTTP PUT', url + '/pos_hero_inbox/' + key + '/heartbeat.json'],
+                ['③ Heartbeat — Body', '{"ts":{".sv":"timestamp"},"battery":[battery]}'],
+                ['③ Heartbeat — UDP', '{"k":"' + key.slice(0, 8) + '","hb":1,"battery":[battery]}']
+            ];
+            body.innerHTML = '<div class="inbox-note" style="margin-bottom:8px;">ตัวแปรใน [ ] คือ Magic Text ของ MacroDroid — เลือกจากปุ่ม "…" ในแอปให้ตรงกับเวอร์ชันที่ใช้ · คู่มือเต็ม: docs/macrodroid-setup.md</div>' +
+                items.map(function(it, i) {
+                    return '<div class="macro-label"><span>' + escapeHTML(it[0]) + '</span><button class="pb-btn" style="background:#475569; flex:0 0 auto; padding:3px 8px;" onclick="copyMacroItem(' + i + ')">📋</button></div><pre>' + escapeHTML(it[1]) + '</pre>';
+                }).join('');
+            window._macroItems = items;
+            document.getElementById('macroInfoModal').style.display = 'flex';
+        }
+        function copyMacroItem(i) { if (window._macroItems && window._macroItems[i]) copyInboxText(window._macroItems[i][1]); }
+        function closeMacroInfoModal() { document.getElementById('macroInfoModal').style.display = 'none'; }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadInboxForm();
+            checkLanFirewall();
+            if (!inboxCfg.pbEnabled) setPbWsStatus('⏸️ ปิดอยู่ (ตั้งค่าใน 📥 ช่องทางรับเงินเข้า)', '');
+        });
+
+        // ------------------------------------------
         // โหมดทดสอบ — รับ event ถัดไป (ช่องทางไหนก็ได้) แล้วแสดงผลใน log โดยไม่บันทึกลงตาราง
         // ------------------------------------------
         var inboxTestArmed = false;
@@ -1659,7 +1792,8 @@
                 inboxStatus = s;
                 var now = s.fb.state;
                 if (s.fb.enabled && now !== 'ok' && (prev === 'ok' || now === 'err')) inboxOnChannelDown('fb');
-                if (typeof updateCombinedLed === 'function') updateCombinedLed();
+                updateCombinedLed();
+                renderLanIps();
             });
         }
         document.addEventListener('DOMContentLoaded', sendInboxConfig);

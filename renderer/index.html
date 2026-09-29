@@ -250,6 +250,40 @@
                 </div>
             </div>
 
+            <!-- 📥 ช่องทางรับเงินเข้า — Firebase (หลัก) / วงเน็ตร้าน UDP (สำรอง) / Pushbullet (เดิม)
+                 ค่าเก็บใน localStorage 'inboxConfig' แล้วส่งให้ main.js — ดู app.js ส่วนที่ 12 -->
+            <div class="pb-box" id="inboxBox">
+                <div style="font-weight:800; color: var(--purple); margin-bottom:4px; font-size:14px;">📥 ช่องทางรับเงินเข้า</div>
+                <div class="inbox-note">มือถือดักจับ (MacroDroid) ส่งแจ้งเตือนมา 2 ทางพร้อมกัน — เน็ตร้านดับแล้วคอมย้ายไปฮอตสปอตก็ยังไม่พลาดยอด</div>
+
+                <div class="inbox-sub"><span>☁️ Firebase (ช่องทางหลัก)</span>
+                    <label class="inbox-switch"><input type="checkbox" id="inboxFbEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
+                <input type="text" id="inboxDbUrl" class="pb-token" placeholder="Database URL เช่น https://xxxx-default-rtdb.asia-southeast1.firebasedatabase.app" onchange="saveInboxSettings()">
+                <div class="inbox-row">
+                    <input type="text" id="inboxKey" class="pb-token" placeholder="Inbox Key (สุ่มยาว 32 ตัวขึ้นไป)" onchange="saveInboxSettings()" spellcheck="false">
+                    <button class="pb-btn" style="background:#7c3aed;" title="สุ่ม Inbox Key ใหม่" onclick="genInboxKey()">🎲</button>
+                    <button class="pb-btn" style="background:#475569;" title="คัดลอก" onclick="copyInboxText(document.getElementById('inboxKey').value)">📋</button>
+                </div>
+
+                <div class="inbox-sub"><span>📶 วงเน็ตร้าน (สำรอง ไม่ต้องมีเน็ต)</span>
+                    <label class="inbox-switch"><input type="checkbox" id="inboxLanEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
+                <div class="inbox-row">
+                    <span style="font-size:12px; color:var(--hero-text-dim);">พอร์ต UDP</span>
+                    <input type="number" id="inboxLanPort" class="pb-token" style="max-width:90px;" min="1024" max="65535" value="47800" onchange="saveInboxSettings()">
+                    <button class="pb-btn" style="background:#b45309;" onclick="addLanFirewallRule()">🛡️ อนุญาตไฟร์วอลล์</button>
+                </div>
+                <div class="inbox-note">IP คอมตอนนี้: <b id="inboxLanIps">-</b></div>
+                <div class="inbox-note">ไฟร์วอลล์: <span id="inboxFwStatus">กำลังตรวจ...</span></div>
+
+                <div class="inbox-sub"><span>🔗 Pushbullet (ช่องทางเดิม)</span>
+                    <label class="inbox-switch"><input type="checkbox" id="inboxPbEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
+
+                <div class="pb-btns" style="margin-top:10px;">
+                    <button class="pb-btn" style="background: var(--purple);" onclick="openMacroInfoModal()">📱 ข้อมูลสำหรับตั้ง MacroDroid</button>
+                    <button class="pb-btn" id="btnInboxTest" style="background:#0f766e;" onclick="armInboxTestMode()">🧪 โหมดทดสอบ</button>
+                </div>
+            </div>
+
             <button id="btnReconSubmit" class="btn-action" style="background: var(--cyan-recon);" onclick="executePrintRecon()" disabled>🖨️ พิมพ์ใบกระทบยอด</button>
         </div>
     </div>
@@ -287,6 +321,14 @@
     </div>
 
     <!-- 🎨 MODAL เลือกธีมสี -->
+    <!-- 📱 MODAL ข้อมูลสำหรับตั้ง MacroDroid — เนื้อหาสร้างจาก app.js openMacroInfoModal() -->
+    <div id="macroInfoModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 460px;">
+            <div class="modal-header"><h3 style="color: var(--purple);">📱 ข้อมูลสำหรับตั้ง MacroDroid</h3><button class="close-btn" onclick="closeMacroInfoModal()">×</button></div>
+            <div id="macroInfoBody"></div>
+        </div>
+    </div>
+
     <div id="themeModal" class="modal-overlay">
         <div class="modal-content" style="max-width: 420px;">
             <div class="modal-header"><h3 style="color: var(--hero-gold-bright);">🎨 เลือกธีมสี</h3><button class="close-btn" onclick="closeThemeModal()">×</button></div>

@@ -1308,9 +1308,17 @@ function lanHandlePacket(msg, rinfo) {
     title: String(data.title || ''),
     body: data.text,
     app: String(data.app || ''),
-    ts: Number(data.ts) || Date.now()
+    // MacroDroid [system_time] เป็นวินาที — แปลงเป็น ms ให้เทียบเวลากับช่องทางอื่นได้
+    ts: normalizeEventTs(data.ts)
   });
   sendInboxStatus();
+}
+
+function normalizeEventTs(raw) {
+  let ts = Number(raw);
+  if (!(ts > 0)) return Date.now();
+  if (ts < 1e11) ts *= 1000;
+  return ts;
 }
 
 function lanRestart() {
