@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage, Notification, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, screen, ipcMain, nativeImage, Notification, dialog, powerMonitor } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -322,6 +322,13 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
+  // Sleep/lock-screen is the most common way the Pushbullet socket dies
+  // silently. Don't wait for the 10s health-check to notice — force a
+  // reconnect the moment the machine is usable again.
+  const forceReconnect = () => mainWindow?.webContents.send('force-reconnect-pushbullet');
+  powerMonitor.on('resume', forceReconnect);
+  powerMonitor.on('unlock-screen', forceReconnect);
+
   // Auto-update: only meaningful for an installed/packaged build — in dev
   // (npm start) electron-updater no-ops since there's no packaged app to
   // replace. Check once on launch, then every 4 hours while it keeps running
@@ -583,6 +590,42 @@ ipcMain.on('money:in', (_event, payload) => {
     refreshTrayMenu();
   });
 
+  notif.show();
+});
+
+// Pushbullet (ช่องทางเดิม นำกลับมาใช้คู่กับ relay) — REST poll ย้อนหลัง
+// หมายเหตุ: /v2/pushes คืนเฉพาะ push ที่ถูกเก็บไว้บนเซิร์ฟเวอร์เท่านั้น แจ้งเตือนที่ mirror
+// จากมือถือ (type 'mirror') เป็น ephemeral ไม่ถูกเก็บในรายการนี้เลย — poll นี้จึงกู้ได้แค่
+// push ปกติ ไม่ครอบคลุม mirror ช่วงที่ WebSocket หลุดไป (ช่องทาง Firebase inbox กู้ส่วนนั้นแทน)
+// Runs in main (not renderer) so it isn't subject to renderer CORS/webSecurity at all.
+ipcMain.handle('pb:poll-missed', async (_event, { token, sinceTs }) => {
+  try {
+    const res = await fetch(
+      `https://api.pushbullet.com/v2/pushes?modified_after=${encodeURIComponent(sinceTs)}&active=true`,
+      { headers: { 'Access-Token': token } }
+    );
+    if (!res.ok) return { success: false, reason: 'http ' + res.status };
+    const data = await res.json();
+    return { success: true, pushes: data.pushes || [] };
+  } catch (e) {
+    return { success: false, reason: e.message };
+  }
+});
+
+ipcMain.on('pb:disconnected-warning', (_event, downMinutes) => {
+  if (!Notification.isSupported()) return;
+  const notif = new Notification({
+    title: '⚠️ Pushbullet ขาดการเชื่อมต่อ',
+    body: `ไม่ได้รับสัญญาณมา ${downMinutes} นาทีแล้ว อาจพลาดยอดเงินเข้า — ลองเปิดมือถือ/เช็คเน็ตแล้วเปิดแอปนี้ขึ้นมาดู`,
+    icon: path.join(__dirname, 'build', 'icon.ico'),
+    urgency: 'critical'
+  });
+  notif.on('click', () => {
+    if (!mainWindow) return;
+    mainWindow.show();
+    mainWindow.focus();
+    refreshTrayMenu();
+  });
   notif.show();
 });
 

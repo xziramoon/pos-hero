@@ -203,6 +203,17 @@
                 <div class="pb-btns">
                     <button class="pb-btn" style="background: var(--purple);" onclick="showRelayInfo()">📶 ดูข้อมูลเชื่อมต่อ (IP/Token)</button>
                 </div>
+                <div style="margin-top:10px; border-top:1px solid #e9d5ff; padding-top:10px;">
+                    <div style="font-weight:700; font-size:12px; color:var(--purple); margin-bottom:6px;">🔗 Pushbullet (ช่องทางเดิม)</div>
+                    <input type="password" id="pbToken" class="pb-token" placeholder="ใส่ Pushbullet Access Token (ขึ้นต้น o.)..." onchange="localStorage.setItem('pbToken',this.value)">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                        <span id="pbWsStatus" class="pb-status">⏸️ ยังไม่เชื่อมต่อ</span>
+                    </div>
+                    <div class="pb-btns">
+                        <button class="pb-btn" style="background: var(--purple);" onclick="connectPushbullet()">🟢 เชื่อมต่อ</button>
+                        <button class="pb-btn" style="background: #64748b;" onclick="disconnectPushbullet()">🔴 ตัดการเชื่อมต่อ</button>
+                    </div>
+                </div>
                 <div id="pbLog"><div class="pb-i">รอการเชื่อมต่อ...</div></div>
                 <div style="display:flex; align-items:center; gap:6px; margin:8px 0; font-size:12px; color:#444;">
                     <input type="checkbox" id="pbToTable" checked style="cursor:pointer;">
