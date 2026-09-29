@@ -74,11 +74,11 @@
             if (type === 'transfer') {
                 nameInput.value = '';
                 nameInput.placeholder = "ชื่อผู้โอน / รายการ...";
-                amtInput.placeholder = "ยอดเงินโอน...";
+                amtInput.placeholder = "ยอดโอน"; // [ข้อ 17] ช่องนี้แคบ (flex:1) ข้อความยาวเดิม "ยอดเงินโอน..." ถูกตัด
             } else if (type === 'thaiplus') {
                 nameInput.value = '';
                 nameInput.placeholder = "ชื่อลูกค้า (ถ้ามี)...";
-                amtInput.placeholder = "ยอดสแกน...";
+                amtInput.placeholder = "ยอดสแกน";
             } else {
                 nameInput.value = '';
                 nameInput.placeholder = "ระบุรายการ...";
@@ -154,30 +154,64 @@
             hideUndoToast();
         }
 
+        // ==========================================
+        // [ข้อ 1 feedback แอ๋ม] Electron ไม่รองรับ prompt() (ขึ้น error เงียบๆ แล้วไม่มีอะไรเกิดขึ้น
+        // เลย) — เดิม editAmount/editName เรียก prompt() ตรงๆ ทำให้แก้ชื่อ/ยอดในตารางไม่ได้เลย
+        // ต้องลบรายการแล้วพิมพ์ใหม่แทน → เปลี่ยนมาใช้ modal เล็กๆ ของแอปเอง (#editModal ใน
+        // index.html ใช้ class modal-overlay/modal-content เดิมที่มีอยู่แล้ว) confirm()/alert() ยัง
+        // ใช้ได้ปกติใน Electron เลยไม่ต้องแตะจุดอื่น (ตรวจแล้วในไฟล์นี้มีแค่ 2 จุดที่เรียก prompt())
+        // ==========================================
+        var _editModalTarget = null; // { index, field: 'name' | 'amount' }
+
         function editAmount(index) {
             const r = records[index];
             if (!r) return;
-            const input = prompt('✏️ แก้ไขยอดเงินของ "' + (r.name || '-') + '"', r.amount);
-            if (input === null) return;
-            const val = parseFloat(input);
-            if (isNaN(val) || val <= 0) { alert('⚠️ ยอดเงินไม่ถูกต้อง'); return; }
-            r.amount = val;
-            r.isEdited = true;
-            localStorage.setItem('posUltimateRecords', JSON.stringify(records));
-            renderTable();
+            _editModalTarget = { index: index, field: 'amount' };
+            document.getElementById('editModalTitle').textContent = '✏️ แก้ไขยอดเงิน';
+            document.getElementById('editModalLabel').textContent = 'ยอดเงินของ "' + (r.name || '-') + '"';
+            var input = document.getElementById('editModalInput');
+            input.type = 'number';
+            input.value = r.amount;
+            document.getElementById('editModal').style.display = 'flex';
+            setTimeout(function() { input.focus(); input.select(); }, 50);
         }
 
         function editName(index) {
             const r = records[index];
             if (!r) return;
-            const input = prompt('✏️ แก้ไขชื่อรายการ', r.name || '-');
-            if (input === null) return;
-            let newName = input.trim();
-            if (newName === '') newName = '-';
-            r.name = newName;
+            _editModalTarget = { index: index, field: 'name' };
+            document.getElementById('editModalTitle').textContent = '✏️ แก้ไขชื่อรายการ';
+            document.getElementById('editModalLabel').textContent = 'ชื่อรายการ';
+            var input = document.getElementById('editModalInput');
+            input.type = 'text';
+            input.value = r.name || '-';
+            document.getElementById('editModal').style.display = 'flex';
+            setTimeout(function() { input.focus(); input.select(); }, 50);
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+            _editModalTarget = null;
+        }
+
+        function confirmEditModal() {
+            if (!_editModalTarget) return;
+            const r = records[_editModalTarget.index];
+            if (!r) { closeEditModal(); return; }
+            const raw = document.getElementById('editModalInput').value;
+            if (_editModalTarget.field === 'amount') {
+                const val = parseFloat(raw);
+                if (isNaN(val) || val <= 0) { alert('⚠️ ยอดเงินไม่ถูกต้อง'); return; }
+                r.amount = val;
+            } else {
+                let newName = raw.trim();
+                if (newName === '') newName = '-';
+                r.name = newName;
+            }
             r.isEdited = true;
             localStorage.setItem('posUltimateRecords', JSON.stringify(records));
             renderTable();
+            closeEditModal();
         }
 
         function resetAll() {
@@ -266,7 +300,10 @@
                     if (r.channels && r.channels.length > 1 && typeof CHANNEL_NAMES !== 'undefined' && CHANNEL_NAMES) {
                         editedMark += '<span class="multi-mark no-print" title="ยืนยันจาก ' + escapeHTML(r.channels.map(c => CHANNEL_NAMES[c] || c).join(' + ')) + '">✓✓</span>';
                     }
-                    return '<tr class="' + cls + '"><td style="text-align:center; color:#ccc;">' + (r.originalIndex+1) + '</td><td style="font-size:12px; color:#666;">' + r.time + '</td><td style="text-align:center;">' + badge + '</td><td class="name-editable" onclick="editName(' + r.originalIndex + ')" title="แตะเพื่อแก้ไขชื่อ">' + escapeHTML(r.name) + editedMark + '</td><td class="amt-editable" style="text-align:right; font-weight:bold;" onclick="editAmount(' + r.originalIndex + ')" title="แตะเพื่อแก้ไขยอด">' + (parseFloat(r.amount)||0).toLocaleString('en-US') + '</td><td class="no-print" style="text-align:center;"><span class="action-btn" style="color:red;" onclick="deleteRecord(' + r.originalIndex + ')">×</span></td></tr>';
+                    // [ข้อ 6] เวลาที่แสดงเป็นเวลาแจ้งเตือนเข้าจริงอยู่แล้ว (ดู pbInject) — ติดป้ายเล็กๆ
+                    // บอกว่ารายการนี้มากู้คืนทีหลัง เผื่อแคชเชียร์สงสัยว่าทำไมเวลาไม่เรียงตามลำดับที่เห็น
+                    let timeCell = escapeHTML(r.time) + (r.backfilled ? ' <span class="backfill-mark no-print" title="กู้คืนภายหลัง — เวลานี้คือเวลาที่แจ้งเตือนเข้าจริง ไม่ใช่เวลาที่กู้คืนได้">↻กู้คืน</span>' : '');
+                    return '<tr class="' + cls + '"><td style="text-align:center; color:#ccc;">' + (r.originalIndex+1) + '</td><td style="font-size:12px; color:#666;">' + timeCell + '</td><td style="text-align:center;">' + badge + '</td><td class="name-editable" onclick="editName(' + r.originalIndex + ')" title="แตะเพื่อแก้ไขชื่อ">' + escapeHTML(r.name) + editedMark + '</td><td class="amt-editable" style="text-align:right; font-weight:bold;" onclick="editAmount(' + r.originalIndex + ')" title="แตะเพื่อแก้ไขยอด">' + (parseFloat(r.amount)||0).toLocaleString('en-US') + '</td><td class="no-print" style="text-align:center;"><span class="action-btn" style="color:red;" onclick="deleteRecord(' + r.originalIndex + ')">×</span></td></tr>';
                 }).join('');
 
             document.getElementById('sumTransfer').innerText = (t/100).toLocaleString('en-US');
@@ -677,12 +714,17 @@
             if (typeof updateCombinedLed === 'function') updateCombinedLed();
         }
 
+        // [ข้อ 16] บรรทัด log ดิบระดับ debug ([RECV]/[PARSE]/[FOUND]/[RAW]/[POLL] หรือมี eventId/iden
+        // ดิบติดมาด้วย) แคชเชียร์ไม่จำเป็นต้องอ่าน แต่ dev ยังไล่ปัญหาได้ — ลดความเด่นแทนการลบทิ้ง
+        // (ตรวจจับจากรูปแบบข้อความตรงนี้ที่เดียว ไม่ต้องแก้จุดที่เรียก pbLog ทุกจุด)
+        var PB_LOG_TECH_RE = /^\[(RECV|PARSE|FOUND|NOT FOUND|RAW|POLL|ERR)\]|\beventId\b|\biden\b/i;
         function pbLog(msg, type) {
             const box = document.getElementById('pbLog');
             if (!box) return;
             const now = new Date().toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
             const div = document.createElement('div');
             div.className = type ? 'pb-' + type : 'pb-i';
+            if (PB_LOG_TECH_RE.test(msg)) div.className += ' pb-tech';
             div.innerHTML = '<span style="color:#bbb;">[' + now + ']</span> ' + msg;
             if (box.children.length === 1 && box.children[0].textContent.indexOf('รอการ') > -1) box.innerHTML = '';
             box.insertBefore(div, box.firstChild);
@@ -728,7 +770,9 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             loadPbConfig();
-            setPbStatus('⏸️ รอมือถือเชื่อมต่อครั้งแรก', '');
+            // [ข้อ 14] ข้อความนี้พูดถึงเฉพาะแอป "POS Relay" (relay:status จาก main.js) — เดิมเขียนแค่
+            // "มือถือ" เฉยๆ ทำให้สับสนกับ Pushbullet/MacroDroid ที่อยู่ในหน้าเดียวกัน
+            setPbStatus('⏸️ POS Relay: รอมือถือเชื่อมต่อครั้งแรก', '');
         });
 
         // แปลง source ที่มือถือส่งมา (ต้องตรงกับ android-app/parser-spec/patterns.json sources[])
@@ -747,6 +791,9 @@
             paotang: 'เป๋าตัง', truemoney: 'TrueMoney', thungngern: 'ถุงเงิน',
             maemanee: 'แม่มณี', unknown: 'ไม่ทราบแหล่งที่มา'
         };
+        // ป้ายชื่ออ่านง่าย สำหรับกลุ่มที่ detectSource() (ใช้ร่วม Pushbullet/Firebase/วงเน็ต) คืนมา —
+        // ('bank1'/'bank2'/ฯลฯ) — ใช้แค่แสดงผลใน log/โหมดทดสอบ (ข้อ 16) ไม่กระทบการจัดกลุ่มจริง
+        var GROUP_LABELS = { bank1: 'บัญชีที่ 1', bank2: 'บัญชีที่ 2', paotang: 'เป๋าตัง/ถุงเงิน', maemanee: 'แม่มณี', fallback: 'ไม่ทราบแหล่งที่มา' };
 
         // ==========================================
         // injectPaymentEvent — บันทึกยอดเข้าตาราง POS + autofill ช่องกระทบยอด
@@ -754,6 +801,21 @@
         // จะมี) ถ้ามี senderName ใช้ชื่อจริงในรายการ ถ้าไม่มีก็ fallback กลับไปเป็น "โอนผ่าน <แหล่งที่มา>"
         // เหมือนเดิม — ไม่ว่ากรณีไหน ค่าที่มาจากภายนอก (network) จะถูก escapeHTML ตอน render เสมอ (renderTable)
         // ==========================================
+
+        // [ข้อ 5 feedback แอ๋ม] เปิดหน้าต่างกระทบยอดค้างไว้แล้วมีเงินเข้า — ฝั่ง "POS เครื่องที่ 1"
+        // (reconPos1Transfer) เดิมคำนวณครั้งเดียวตอนเปิด modal (openReconModal) เท่านั้น ไม่เคยถูก
+        // รีเฟรชอีกเลยตอนมีรายการใหม่เข้าตาราง ต่างจากฝั่งธนาคาร/เป๋าตังที่รายการอัตโนมัติเติมให้เอง
+        // → เรียกฟังก์ชันนี้ทุกครั้งหลัง renderTable() จากช่องทางอัตโนมัติ เพื่อให้ตัวเลขสองฝั่งขยับพร้อมกัน
+        function refreshReconPosIfOpen() {
+            var modal = document.getElementById('reconModal');
+            if (!modal || modal.style.display !== 'flex') return;
+            var t = 0;
+            records.forEach(function(r) { if (r.type === 'transfer') t += Math.round((parseFloat(r.amount) || 0) * 100); });
+            var el = document.getElementById('reconPos1Transfer');
+            if (el) el.value = t > 0 ? (t / 100) : '';
+            calcRecon();
+        }
+
         function injectPaymentEvent(amount, group, sourceLabel, senderName) {
             var cfg = getPbConfig();
             var toTable = document.getElementById('pbToTable') ? document.getElementById('pbToTable').checked : true;
@@ -778,6 +840,7 @@
                 localStorage.setItem('posUltimateRecords', JSON.stringify(records));
                 localStorage.setItem('posUltimateDate', new Date().toLocaleDateString('th-TH'));
                 renderTable();
+                refreshReconPosIfOpen();
                 pbLog('✅ บันทึก: +' + amount.toLocaleString('en-US') + ' ฿ (' + recordName + ')', 'm');
                 if (window.heroWindow && window.heroWindow.notifyMoneyIn) {
                     window.heroWindow.notifyMoneyIn(amount, recordName, recType);
@@ -844,9 +907,13 @@
                 if (!status) return;
                 appRelayState = status.state;
                 // setPbStatus ด้านล่างเรียก updateCombinedLed ให้อยู่แล้ว
-                if (status.state === 'ok') setPbStatus('🟢 มือถือเชื่อมต่อปกติ', 'ok');
-                else if (status.state === 'err') setPbStatus('🔴 ไม่ได้ยินจากมือถือ', 'err');
-                else setPbStatus('⏸️ รอมือถือเชื่อมต่อครั้งแรก', '');
+                // [ข้อ 14] ระบุชื่อช่องทาง "POS Relay" ให้ชัด ไม่ใช่แค่ "มือถือ" เฉยๆ
+                if (status.state === 'ok') setPbStatus('🟢 POS Relay: เชื่อมต่อปกติ', 'ok');
+                else if (status.state === 'err') setPbStatus('🔴 POS Relay: ไม่ได้ยินจากมือถือ', 'err');
+                else setPbStatus('⏸️ POS Relay: รอมือถือเชื่อมต่อครั้งแรก', '');
+                // มีการเชื่อมต่อ/ปัญหาจริงเกิดขึ้นกับระบบเดิมนี้ → เปิดกล่องให้เห็นแทนที่จะพับซ่อนไว้
+                var box = document.getElementById('legacyRelayBox');
+                if (box && (status.state === 'ok' || status.state === 'err')) box.open = true;
             });
         }
 
@@ -897,6 +964,10 @@
             const t = document.getElementById('pbToken');
             if (t && pbToken) t.value = pbToken;
             if (pbToken) connectPushbullet();
+            // [ข้อ 14] "เปิดใช้" (ติ๊ก inboxPbEnabled) กับ "เชื่อมต่อแล้ว" เป็นคนละเรื่อง — ติ๊กเปิดใช้ไว้
+            // แต่ยังไม่ใส่ Token ก็ยังเชื่อมต่อไม่ได้ เดิมข้อความ "ยังไม่เชื่อมต่อ" เฉยๆ ทำให้ดูขัดกับ
+            // ติ๊กที่เปิดอยู่ → บอกเหตุผลตรงๆ ว่ายังไม่ได้ใส่ Token
+            else setPbWsStatus('⏸️ ยังไม่ได้ใส่ Token', '');
         });
 
         // สถานะ Pushbullet แยกจาก #pbStatus (ของ relay) — ไฟ LED รวมอยู่ใน updateCombinedLed()
@@ -905,6 +976,9 @@
             var el = document.getElementById('pbWsStatus');
             if (el) { el.innerHTML = html; el.className = 'pb-status ' + (cls || ''); }
             pbWsState = cls === 'ok' ? 'ok' : cls === 'warn' ? 'connecting' : cls === 'err' ? 'err' : 'off';
+            // [ข้อ 14] จริงจังกับระบบเดิมนี้แล้ว (เชื่อมต่อได้ หรือเจอปัญหาจริง) → เปิดกล่องให้เห็น
+            var box = document.getElementById('legacyRelayBox');
+            if (box && (cls === 'ok' || cls === 'err')) box.open = true;
             if (typeof updateCombinedLed === 'function') updateCombinedLed();
         }
 
@@ -1230,13 +1304,25 @@
                     saved.channels = [meta.channel];
                     if (meta.eventId) saved.eventId = meta.eventId;
                     if (meta.sig) saved.sig = meta.sig;
-                    if (meta.evTs) saved.evTs = meta.evTs;
+                    if (meta.evTs) {
+                        saved.evTs = meta.evTs;
+                        // [ข้อ 6 feedback แอ๋ม] รายการที่กู้คืน (เน็ตหลุด/ปิดแอปแล้วเปิดใหม่ ฯลฯ) เดิม
+                        // ใช้เวลาที่ "กู้คืนได้" (ตอนนี้) เป็นเวลาแสดงในตาราง ทำให้เทียบกับแอปธนาคาร
+                        // ไม่ตรง → ถ้าห่างจากเวลาที่แจ้งเตือนเข้าจริง (evTs) เกิน 15 วิ ถือว่าเป็นรายการ
+                        // กู้คืน ใช้เวลาจริงแทน + ติดป้าย "กู้คืน" ไว้ (ไม่เปลี่ยนรูปแบบ record เดิม
+                        // แค่เพิ่ม field backfilled)
+                        if (now - meta.evTs > 15000) {
+                            saved.time = new Date(meta.evTs).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'});
+                            saved.backfilled = true;
+                        }
+                    }
                 }
                 records.push(saved);
                 localStorage.setItem('posUltimateRecords', JSON.stringify(records));
                 localStorage.setItem('posUltimateDate', new Date().toLocaleDateString('th-TH'));
                 renderTable();
-                pbLog((meta && CHANNEL_ICONS[meta.channel] ? CHANNEL_ICONS[meta.channel] + ' ' : '') + '✅ บันทึก: +' + amount.toLocaleString('en-US') + ' ฿ (' + escapeHTML(recordName) + ')', 'm');
+                refreshReconPosIfOpen();
+                pbLog((meta && CHANNEL_ICONS[meta.channel] ? CHANNEL_ICONS[meta.channel] + ' ' : '') + '✅ บันทึก: +' + amount.toLocaleString('en-US') + ' ฿ (' + escapeHTML(recordName) + ')' + (saved.backfilled ? ' — กู้คืน' : ''), 'm');
                 if (window.heroWindow && window.heroWindow.notifyMoneyIn) {
                     window.heroWindow.notifyMoneyIn(amount, recordName, recType);
                 }
@@ -1580,8 +1666,13 @@
                     var tAmt = isMoneyNotification(full) ? extractMoney(full) : null;
                     var tSrc = detectSource(full) || 'fallback';
                     var tName = pbShortName((body + ' ' + title).replace(/\n/g, ' '));
+                    var tGroupLabel = GROUP_LABELS[tSrc] || tSrc;
                     pbLog('🧪 ' + icon + ' ทดสอบ ' + escapeHTML(CHANNEL_NAMES[ch] || ch) + ': ยอด ' + (tAmt ? tAmt.toLocaleString('en-US') + ' ฿' : 'อ่านไม่ได้') +
-                          ' · แหล่ง ' + tSrc + ' · ชื่อ "' + escapeHTML(tName) + '" (ไม่บันทึกลงตาราง)', 'm');
+                          ' · แหล่ง ' + escapeHTML(tGroupLabel) + ' · ชื่อ "' + escapeHTML(tName) + '" (ไม่บันทึกลงตาราง)', 'm');
+                    // [ข้อ 10] แสดงผลใกล้ปุ่มด้วย ไม่ใช่แค่ใน log ที่อยู่ไกล
+                    setInboxTestResult(tAmt
+                        ? ('✅ ได้รับ ' + tAmt.toLocaleString('en-US') + ' ฿ จาก ' + escapeHTML(tName) + ' ทาง ' + icon + ' ' + escapeHTML(CHANNEL_NAMES[ch] || ch) + ' (' + escapeHTML(tGroupLabel) + ') — ไม่บันทึก')
+                        : ('⚠️ ทดสอบทาง ' + icon + ' ' + escapeHTML(CHANNEL_NAMES[ch] || ch) + ' สำเร็จ แต่อ่านยอดเงินไม่ได้ — ไม่บันทึก'));
                     return;
                 }
 
@@ -1631,8 +1722,29 @@
             set('inboxLanEnabled', 'checked', !!inboxCfg.lanEnabled);
             set('inboxLanPort', 'value', inboxCfg.lanPort || 47800);
             set('inboxPbEnabled', 'checked', inboxCfg.pbEnabled !== false);
+            var urlErrEl = document.getElementById('inboxFbUrlErr');
+            var keyErrEl = document.getElementById('inboxFbKeyErr');
+            var urlErr = inboxUrlProblem(inboxCfg.dbUrl || '');
+            var keyErr = inboxKeyProblem(inboxCfg.inboxKey || '');
+            if (urlErrEl) urlErrEl.textContent = urlErr ? ('Database URL ' + urlErr) : '';
+            if (keyErrEl) keyErrEl.textContent = keyErr;
         }
 
+        // [ข้อ 11] เดิมพิมพ์ Database URL ผิด (เช่นวาง URL ซ้อนกัน 2 อันจนมีช่องว่างตรงกลาง) แอปบันทึก
+        // ไปเลยเงียบๆ ไม่เตือน ต้องไปไล่ดู log เอง — ตรวจให้ละเอียดขึ้น (มีช่องว่าง/รูปแบบผิด) แล้วโชว์
+        // ข้อความเตือนติดกับช่องกรอกเลย (ยังคงบันทึกค่าไว้ตามเดิม เผื่อร้านแก้ต่อจากตรงนี้)
+        function inboxUrlProblem(url) {
+            if (!url) return '';
+            if (/\s/.test(url)) return '❌ มีช่องว่างอยู่ตรงกลาง URL (อาจวาง URL ซ้อนกัน 2 อัน) — ลบส่วนเกินออก';
+            if (!/^https:\/\//.test(url)) return '❌ ต้องขึ้นต้นด้วย https://';
+            return '';
+        }
+        function inboxKeyProblem(key) {
+            if (!key) return '';
+            if (/\s/.test(key)) return '❌ Key มีช่องว่างอยู่ — คัดลอกใหม่ให้ครบ';
+            if (!/^[A-Za-z0-9_-]{32,}$/.test(key)) return '❌ ต้องยาว 32 ตัวขึ้นไป (a-z A-Z 0-9 _ -) — กด 🎲 เพื่อสุ่ม';
+            return '';
+        }
         function saveInboxSettings() {
             var val = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
             var chk = function(id) { var el = document.getElementById(id); return !!(el && el.checked); };
@@ -1644,8 +1756,14 @@
                 lanPort: parseInt(val('inboxLanPort'), 10) || 47800,
                 pbEnabled: chk('inboxPbEnabled')
             };
-            if (next.dbUrl && !/^https:\/\//.test(next.dbUrl)) pbLog('☁️ Database URL ต้องขึ้นต้นด้วย https://', 'e');
-            if (next.inboxKey && !/^[A-Za-z0-9_-]{32,}$/.test(next.inboxKey)) pbLog('☁️ Inbox Key ต้องยาว 32 ตัวขึ้นไป (a-z A-Z 0-9 _ -) — กด 🎲 เพื่อสุ่ม', 'e');
+            var urlErr = inboxUrlProblem(next.dbUrl);
+            var keyErr = inboxKeyProblem(next.inboxKey);
+            var urlErrEl = document.getElementById('inboxFbUrlErr');
+            var keyErrEl = document.getElementById('inboxFbKeyErr');
+            if (urlErrEl) urlErrEl.textContent = urlErr ? ('Database URL ' + urlErr) : '';
+            if (keyErrEl) keyErrEl.textContent = keyErr;
+            if (urlErr) pbLog('☁️ Database URL ' + urlErr, 'e');
+            if (keyErr) pbLog('☁️ Inbox Key ' + keyErr, 'e');
             if (next.lanPort < 1024 || next.lanPort > 65535) { next.lanPort = 47800; pbLog('📶 พอร์ตต้องอยู่ระหว่าง 1024–65535 → ใช้ 47800', 'w'); }
             // เปลี่ยน URL/Key = inbox คนละที่ → เริ่ม cursor ใหม่ (ตั้งเป็น "ตอนนี้" ตอนต่อครั้งแรก)
             if (next.dbUrl !== inboxCfg.dbUrl || next.inboxKey !== inboxCfg.inboxKey) localStorage.removeItem('fbInboxLastKey');
@@ -1672,12 +1790,25 @@
             saveInboxSettings();
         }
 
-        function copyInboxText(text) {
+        // [ข้อ 13] ปุ่ม 📋 คัดลอกได้จริงอยู่แล้ว แต่ไม่มีอะไรบอกบนจอ — ข้อความ "คัดลอกแล้ว" เดิมไปโผล่
+        // ใน pbLog ที่อยู่ไกลจากปุ่มมาก (บางทีอยู่ใต้ modal ที่เปิดซ้อนอยู่) → เปลี่ยนปุ่มเป็น ✓ ชั่วครู่แทน
+        function copyInboxText(text, btn) {
             if (!text) return;
-            var done = function() { pbLog('📋 คัดลอกแล้ว', 'i'); };
+            var done = function() { pbLog('📋 คัดลอกแล้ว', 'i'); flashCopyButton(btn); };
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(text).then(done, function() { copyInboxTextFallback(text); done(); });
             } else { copyInboxTextFallback(text); done(); }
+        }
+        function flashCopyButton(btn) {
+            if (!btn) return;
+            if (btn._copyTimer) clearTimeout(btn._copyTimer);
+            if (btn.dataset.origLabel === undefined) btn.dataset.origLabel = btn.textContent;
+            btn.textContent = '✓ คัดลอกแล้ว';
+            btn.classList.add('copied');
+            btn._copyTimer = setTimeout(function() {
+                btn.textContent = btn.dataset.origLabel;
+                btn.classList.remove('copied');
+            }, 1400);
         }
         function copyInboxTextFallback(text) {
             var ta = document.createElement('textarea');
@@ -1733,14 +1864,14 @@
                 ['③ Heartbeat — Body', '{"ts":{".sv":"timestamp"},"battery":[battery]}'],
                 ['③ Heartbeat — UDP', '{"k":"' + key.slice(0, 8) + '","hb":1,"battery":[battery]}']
             ];
-            body.innerHTML = '<div class="inbox-note" style="margin-bottom:8px;">ตัวแปรใน [ ] คือ Magic Text ของ MacroDroid — เลือกจากปุ่ม "…" ในแอปให้ตรงกับเวอร์ชันที่ใช้ · คู่มือเต็ม: docs/macrodroid-setup.md</div>' +
+            body.innerHTML = '<div class="inbox-note" style="margin-bottom:8px;">ตัวแปรใน [ ] คือ Magic Text ของ MacroDroid — เลือกจากปุ่ม "…" ในแอปให้ตรงกับเวอร์ชันที่ใช้ · คู่มือเต็ม: ไฟล์ docs/macrodroid-setup.md ในโฟลเดอร์ติดตั้งโปรแกรม (ไม่ใช่ลิงก์ กดจากตรงนี้ไม่ได้)</div>' +
                 items.map(function(it, i) {
-                    return '<div class="macro-label"><span>' + escapeHTML(it[0]) + '</span><button class="pb-btn" style="background:#475569; flex:0 0 auto; padding:3px 8px;" onclick="copyMacroItem(' + i + ')">📋</button></div><pre>' + escapeHTML(it[1]) + '</pre>';
+                    return '<div class="macro-label"><span>' + escapeHTML(it[0]) + '</span><button class="pb-btn" style="background:#475569; flex:0 0 auto; padding:3px 8px;" onclick="copyMacroItem(' + i + ', this)">📋</button></div><pre>' + escapeHTML(it[1]) + '</pre>';
                 }).join('');
             window._macroItems = items;
             document.getElementById('macroInfoModal').style.display = 'flex';
         }
-        function copyMacroItem(i) { if (window._macroItems && window._macroItems[i]) copyInboxText(window._macroItems[i][1]); }
+        function copyMacroItem(i, btn) { if (window._macroItems && window._macroItems[i]) copyInboxText(window._macroItems[i][1], btn); }
         function closeMacroInfoModal() { document.getElementById('macroInfoModal').style.display = 'none'; }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -1754,13 +1885,20 @@
         // ------------------------------------------
         var inboxTestArmed = false;
         var inboxTestTimer = null;
+        // [ข้อ 10 feedback แอ๋ม] ผลโหมดทดสอบเดิมโผล่แต่ใน pbLog (สูงกว่าปุ่มราว 400px คนกดไม่เห็น) —
+        // ใช้กล่องเล็กๆ ใต้ปุ่มเอง (#inboxTestResult) โชว์ผลทันที ควบคู่กับ pbLog (ยังเก็บไว้ debug)
+        function setInboxTestResult(html) {
+            var el = document.getElementById('inboxTestResult');
+            if (el) el.innerHTML = html;
+        }
         function armInboxTestMode() {
             inboxTestArmed = true;
             if (inboxTestTimer) clearTimeout(inboxTestTimer);
             inboxTestTimer = setTimeout(function() {
-                if (inboxTestArmed) { disarmInboxTestMode(); pbLog('🧪 หมดเวลาโหมดทดสอบ (ไม่มีแจ้งเตือนเข้ามาใน 5 นาที)', 'w'); }
+                if (inboxTestArmed) { disarmInboxTestMode(); pbLog('🧪 หมดเวลาโหมดทดสอบ (ไม่มีแจ้งเตือนเข้ามาใน 5 นาที)', 'w'); setInboxTestResult('⌛ หมดเวลา — ไม่มีแจ้งเตือนเข้ามาใน 5 นาที'); }
             }, 5 * 60 * 1000);
             pbLog('🧪 โหมดทดสอบ: รอแจ้งเตือนถัดไป — จะแสดงผลอย่างเดียว ไม่บันทึกลงตาราง', 'w');
+            setInboxTestResult('⏳ รอแจ้งเตือนทดสอบ... (ส่งจากมือถือได้เลย)');
             var b = document.getElementById('btnInboxTest');
             if (b) b.textContent = '🧪 รอแจ้งเตือนทดสอบ...';
         }
@@ -1816,21 +1954,26 @@
         function channelLedStates() {
             var fb = inboxStatus.fb || {};
             var lan = inboxStatus.lan || {};
-            var pbOn = !!(pbToken && inboxCfg.pbEnabled);
             var s = {};
 
-            if (!fbIsConfigured()) s.fb = { cls: '', text: 'ปิดอยู่' };
+            // [ข้อ 14] "เปิดใช้" (ติ๊ก) กับ "พร้อมทำงาน" (ตั้งค่าครบ) เป็นคนละเรื่อง — ติ๊กไว้แต่ยังกรอก
+            // URL/Key ไม่ครบ ไม่ควรขึ้น "ปิดอยู่" เฉยๆ เดี๋ยวดูขัดกับติ๊กที่เปิดอยู่
+            if (!inboxCfg.fbEnabled) s.fb = { cls: '', text: 'ปิดอยู่' };
+            else if (!fbIsConfigured()) s.fb = { cls: '', text: 'ยังตั้งค่าไม่ครบ (ใส่ URL/Key ก่อน)' };
             else if (fb.state === 'ok' && fbHeartbeatFresh()) s.fb = { cls: 'ok', text: 'ต่ออยู่' + (fb.battery != null ? ' (แบตมือถือ ' + fb.battery + '%)' : '') };
             else if (fb.state === 'ok') s.fb = { cls: 'warn', text: 'ต่ออยู่ แต่มือถือดักจับเงียบ (heartbeat ' + (fb.heartbeatTs ? Math.floor((Date.now() - fb.heartbeatTs) / 60000) + ' นาทีก่อน' : 'ยังไม่เคยมา') + ')' };
             else if (fb.state === 'connecting') s.fb = { cls: 'warn', text: 'กำลังเชื่อมต่อ' };
-            else s.fb = { cls: 'err', text: 'หลุด' };
+            // [ข้อ 11] ติดเหตุผลที่แปลเป็นภาษาคนแล้ว (main.js's humanizeFbError) ต่อท้าย ไม่ใช่แค่ "หลุด" เฉยๆ
+            else s.fb = { cls: 'err', text: 'เชื่อมต่อไม่ได้' + (fb.lastError ? ' — ' + fb.lastError : '') };
 
             if (!lan.enabled) s.lan = { cls: '', text: 'ปิดอยู่' };
             else if (lan.error) s.lan = { cls: 'err', text: 'เปิดรับไม่ได้ — ' + lan.error };
             else if (inboxChannelIsUp('lan')) s.lan = { cls: 'ok', text: agoText(lanLastHeard()) };
             else s.lan = { cls: 'warn', text: 'รอฟังพอร์ต ' + (lan.port || '') + ' — ' + agoText(lanLastHeard()) };
 
-            if (!pbOn) s.pb = { cls: '', text: 'ปิดอยู่' };
+            // [ข้อ 14] เช่นเดียวกับ Firebase — ติ๊ก "เปิดใช้" ไว้แต่ยังไม่ได้ใส่ Token ไม่ควรขึ้น "ปิดอยู่"
+            if (!inboxCfg.pbEnabled) s.pb = { cls: '', text: 'ปิดอยู่' };
+            else if (!pbToken) s.pb = { cls: '', text: 'ยังไม่ได้ใส่ Token' };
             else if (pbWsState === 'ok') s.pb = { cls: 'ok', text: 'ต่ออยู่' };
             else if (pbWsState === 'connecting') s.pb = { cls: 'warn', text: 'กำลังเชื่อมต่อ' };
             else s.pb = { cls: 'err', text: 'หลุด' };
@@ -1850,10 +1993,16 @@
             var fbWorking = s.fb.cls === 'ok';
             var backupWorking = inboxChannelIsUp('lan') || s.pb.cls === 'ok' || appRelayState === 'ok';
             var anyConfigured = s.fb.text !== 'ปิดอยู่' || s.lan.text !== 'ปิดอยู่' || s.pb.text !== 'ปิดอยู่' || appRelayState !== 'unconfigured';
-            var cls = fbWorking ? 'ok' : backupWorking ? 'warn' : anyConfigured ? 'err' : '';
+            // [ข้อ 12 feedback แอ๋ม] เพิ่งตั้งค่า Firebase เสร็จ (มือถือยังไม่เคยส่ง heartbeat เลยสัก
+            // ครั้ง) เดิมไฟรวมขึ้นแดงทันที ทั้งที่ Firebase เองต่อได้ปกติ แค่ยังไม่เคยได้ยินจากมือถือ —
+            // ควรเป็นเหลือง/รอ ไม่ใช่แดง แต่ถ้าเคยได้ heartbeat มาก่อนแล้วเงียบไป (heartbeatTs > 0 แต่
+            // เก่าเกิน 12 นาที) ยังต้องแดงเหมือนเดิม (ของจริงเสียกลางทาง ไม่ใช่แค่ยังไม่ได้ตั้งมือถือ)
+            var fbNeverHeard = fbIsConfigured() && (inboxStatus.fb.state === 'ok' || inboxStatus.fb.state === 'connecting') && !inboxStatus.fb.heartbeatTs;
+            var cls = fbWorking ? 'ok' : backupWorking ? 'warn' : fbNeverHeard ? 'warn' : anyConfigured ? 'err' : '';
 
-            var parts = ['fb', 'lan', 'pb'].map(function(ch) { return CHANNEL_ICONS[ch] + ' ' + s[ch].text; });
-            if (appRelayState !== 'unconfigured') parts.push(CHANNEL_ICONS.app + ' ' + s.app.text);
+            // [ข้อ 18] tooltip ใช้อีโมจิล้วนต้องจำเองว่าอันไหนคือช่องทางไหน — ใส่ชื่อช่องทางกำกับด้วย
+            var parts = ['fb', 'lan', 'pb'].map(function(ch) { return CHANNEL_ICONS[ch] + ' ' + CHANNEL_NAMES[ch] + ': ' + s[ch].text; });
+            if (appRelayState !== 'unconfigured') parts.push(CHANNEL_ICONS.app + ' ' + CHANNEL_NAMES.app + ': ' + s.app.text);
             var tip = parts.join(' · ');
 
             var led = document.getElementById('pbLed');
@@ -1863,15 +2012,31 @@
 
             ['fb', 'lan', 'pb', 'app'].forEach(function(ch) {
                 var dot = document.getElementById('chLed_' + ch);
-                if (dot) { dot.className = 'ch-led ' + s[ch].cls; dot.title = s[ch].text; }
+                if (dot) { dot.className = 'ch-led ' + s[ch].cls; dot.title = CHANNEL_NAMES[ch] + ': ' + s[ch].text; }
                 var txt = document.getElementById('chLedText_' + ch);
                 if (txt) txt.textContent = s[ch].text;
             });
+            updateInboxBoxStatus(s);
 
             if (cls === 'err') { if (!combinedErrSince) combinedErrSince = Date.now(); }
             else combinedErrSince = 0;
             combinedLedState = cls;
             checkCombinedAlert();
+        }
+
+        // [ข้อ 11] กล่อง "📥 ช่องทางรับเงินเข้า" เดิมไม่มีสถานะของตัวเองเลย ต้องเดาจากไฟ titlebar หรือ
+        // ไล่ดู log — เติมบรรทัดสถานะสั้นๆ ให้แต่ละช่องทางในกล่องนั้นโดยตรง
+        function updateInboxBoxStatus(s) {
+            var iconFor = function(cls) { return cls === 'ok' ? '🟢' : cls === 'warn' ? '🟡' : cls === 'err' ? '🔴' : '⚪'; };
+            var setLine = function(id, ch) {
+                var el = document.getElementById(id);
+                if (!el || !s[ch]) return;
+                el.textContent = iconFor(s[ch].cls) + ' ' + s[ch].text;
+                el.className = 'inbox-status ' + (s[ch].cls || '');
+            };
+            setLine('inboxFbStatusLine', 'fb');
+            setLine('inboxLanStatusLine', 'lan');
+            setLine('inboxPbStatusLine', 'pb');
         }
 
         // เด้ง native notification เมื่อไฟรวมแดงเกิน 1 นาที (ซ้ำได้ทุก 5 นาทีถ้ายังแดงต่อเนื่อง) —
@@ -1894,10 +2059,36 @@
         }
 
         // ==========================================
+        // [ข้อ 7 + 17 feedback แอ๋ม] เผื่อพื้นที่ด้านล่างให้พ้นแผงปุ่มลอย (.floating-controls)
+        // แผงปุ่มนี้ห่อบรรทัดเอง (flex-wrap) ตามความกว้างจอ (แคบสุด ~340px) ยิ่งปุ่มเยอะขึ้นเรื่อยๆ ตาม
+        // เวอร์ชัน แผงก็ยิ่งสูงขึ้น — เดิม .paper ใช้ margin-bottom ตายตัว (96px) พอแผงสูงกว่านั้นก็ไป
+        // บังบรรทัด "ค่าใช้จ่าย"/"สุทธิ" ท้ายตาราง (ตัวเลขสำคัญที่สุดของกะ) แม้เลื่อนจนสุดก็ไม่เห็น —
+        // และป๊อปอัป "↩ กู้คืน" (bottom:25px ตายตัวเดิม) ก็ไปวางทับปุ่มแถวล่างพอดีด้วยเหตุผลเดียวกัน
+        // แก้ด้วยตัวแปร CSS เดียว (--floatbar-h) วัดความสูงจริงของแผงแล้วให้ทั้งคู่ใช้ร่วมกัน
+        // (ดู .paper และ .undo-toast ใน base.css/theme-hero.css)
+        // ==========================================
+        function adjustFloatingBarSpace() {
+            var bar = document.querySelector('.floating-controls');
+            if (!bar) return;
+            var h = bar.offsetHeight;
+            if (h > 0) document.documentElement.style.setProperty('--floatbar-h', (h + 20) + 'px');
+        }
+        window.addEventListener('resize', adjustFloatingBarSpace);
+        if (window.ResizeObserver) {
+            document.addEventListener('DOMContentLoaded', function() {
+                var bar = document.querySelector('.floating-controls');
+                if (bar) new ResizeObserver(adjustFloatingBarSpace).observe(bar);
+            });
+        }
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(adjustFloatingBarSpace);
+        adjustFloatingBarSpace();
+
+        // ==========================================
         // Initialize App
         // ==========================================
         initDrawerTable();
         initExchangeTable();
         handleTypeChange();
         renderTable();
+        adjustFloatingBarSpace();
 
