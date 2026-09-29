@@ -1028,7 +1028,8 @@ const fbInbox = {
   reconnectTimer: null,
   delivered: new Set(),  // pushId ที่ส่งให้ renderer แล้วในรอบนี้ (ยังไม่ ack ก็ไม่ส่งซ้ำ)
   heartbeat: null,       // { ts, battery }
-  lastCleanupAt: 0
+  lastCleanupAt: 0,
+  lastError: ''          // [ข้อ 11/16] ข้อความ error ล่าสุด (แปลเป็นภาษาคนแล้ว) ให้ renderer โชว์ในกล่อง 📥
 };
 
 function fbConfigured() {
@@ -1074,11 +1075,25 @@ function fbStop() {
   fbInbox.hbStream = null;
 }
 
+// [ข้อ 16 feedback แอ๋ม] ข้อความ error ดิบอย่าง "http 404"/"fetch failed" อ่านไม่รู้เรื่องสำหรับคนร้าน
+// — แปลเป็นภาษาคนแนบไว้ (ไม่ทิ้งข้อความดิบเดิม เผื่อ dev ต้องไล่ปัญหาต่อ)
+function humanizeFbError(raw) {
+  const m = String(raw || '');
+  if (/http 404/.test(m)) return 'ไม่พบ URL นี้ (Database URL หรือ Inbox Key ผิด?)';
+  if (/http 401/.test(m)) return 'ไม่มีสิทธิ์อ่าน (ตรวจกฎ Firebase — ดูคู่มือขั้นที่ 0)';
+  if (/http 400/.test(m)) return 'คำขอไม่ถูกต้อง (URL ผิดรูปแบบ?)';
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED/i.test(m)) return 'ต่ออินเทอร์เน็ตไม่ได้';
+  if (/timeout|aborted/i.test(m)) return 'เชื่อมต่อช้าเกินไป (timeout)';
+  return '';
+}
+
 function fbScheduleReconnect(reason) {
   if (!fbConfigured()) return;
   const wait = FB_BACKOFF_MS[Math.min(fbInbox.backoffIdx, FB_BACKOFF_MS.length - 1)];
   fbInbox.backoffIdx++;
-  inboxLog(`☁️ Firebase หลุด (${reason}) → ต่อใหม่ใน ${wait / 1000} วิ`, 'w');
+  const human = humanizeFbError(reason);
+  fbInbox.lastError = human || reason;
+  inboxLog(`☁️ Firebase หลุด (${human ? reason + ' — ' + human : reason}) → ต่อใหม่ใน ${wait / 1000} วิ`, 'w');
   fbSetState('err');
   if (fbInbox.reconnectTimer) clearTimeout(fbInbox.reconnectTimer);
   fbInbox.reconnectTimer = setTimeout(() => { fbInbox.reconnectTimer = null; fbConnect(); }, wait);
@@ -1224,7 +1239,8 @@ function sendInboxStatus() {
       enabled: fbConfigured(),
       state: fbInbox.state,
       heartbeatTs: fbInbox.heartbeat && typeof fbInbox.heartbeat.ts === 'number' ? fbInbox.heartbeat.ts : 0,
-      battery: fbInbox.heartbeat ? fbInbox.heartbeat.battery : undefined
+      battery: fbInbox.heartbeat ? fbInbox.heartbeat.battery : undefined,
+      lastError: fbInbox.state === 'err' ? fbInbox.lastError : ''
     },
     lan: lanStatusSnapshot()
   });
