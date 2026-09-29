@@ -262,6 +262,10 @@
                     let badge = r.type==='transfer' ? '<span class="badge bg-tr">โอน</span>' : r.type==='welfare' ? '<span class="badge bg-wel">บัตร</span>' : r.type==='thaiplus' ? '<span class="badge bg-thaiplus">ไทยพลัส</span>' : '<span class="badge bg-exp">จ่าย</span>';
                     let cls = r.type==='transfer' ? 'row-transfer' : r.type==='welfare' ? 'row-welfare' : r.type==='thaiplus' ? 'row-thaiplus' : 'row-expense';
                     let editedMark = r.isEdited ? '<span class="edited-mark">✎</span>' : '';
+                    // ✓✓ = รายการเดียวกันถูกยืนยันจากหลายช่องทาง (Firebase / วงเน็ต / Pushbullet) — ดูส่วนที่ 12
+                    if (r.channels && r.channels.length > 1 && typeof CHANNEL_NAMES !== 'undefined' && CHANNEL_NAMES) {
+                        editedMark += '<span class="multi-mark no-print" title="ยืนยันจาก ' + escapeHTML(r.channels.map(c => CHANNEL_NAMES[c] || c).join(' + ')) + '">✓✓</span>';
+                    }
                     return '<tr class="' + cls + '"><td style="text-align:center; color:#ccc;">' + (r.originalIndex+1) + '</td><td style="font-size:12px; color:#666;">' + r.time + '</td><td style="text-align:center;">' + badge + '</td><td class="name-editable" onclick="editName(' + r.originalIndex + ')" title="แตะเพื่อแก้ไขชื่อ">' + escapeHTML(r.name) + editedMark + '</td><td class="amt-editable" style="text-align:right; font-weight:bold;" onclick="editAmount(' + r.originalIndex + ')" title="แตะเพื่อแก้ไขยอด">' + (parseFloat(r.amount)||0).toLocaleString('en-US') + '</td><td class="no-print" style="text-align:center;"><span class="action-btn" style="color:red;" onclick="deleteRecord(' + r.originalIndex + ')">×</span></td></tr>';
                 }).join('');
 
@@ -1230,6 +1234,7 @@
                     saved.channels = [meta.channel];
                     if (meta.eventId) saved.eventId = meta.eventId;
                     if (meta.sig) saved.sig = meta.sig;
+                    if (meta.evTs) saved.evTs = meta.evTs;
                 }
                 records.push(saved);
                 localStorage.setItem('posUltimateRecords', JSON.stringify(records));
@@ -1296,32 +1301,20 @@
                 var body = push.body || '';
                 // [FIX] ดึงชื่อแอปที่ส่งแจ้งเตือนมาด้วย!
                 var appName = push.application_name || push.app_name || '';
-                var full = title + ' ' + body + ' ' + appName;
 
                 pbLog('---', 'i');
-                pbLog('APP: ' + escapeHTML(appName), 'i');
-                pbLog('TITLE: ' + escapeHTML(title.substring(0,40)), 'i');
-                pbLog('BODY: ' + escapeHTML(body.substring(0,60)), 'i');
+                pbLog('🔗 APP: ' + escapeHTML(appName), 'i');
 
-                if (!isMoneyNotification(full)) {
-                    pbLog('[SKIP] ไม่ใช่แจ้งเตือนเงินเข้า', 'i');
-                    return;
-                }
-
-                var amt = extractMoney(full);
-                var src = detectSource(full);
-
-                if (!amt) {
-                    pbLog('[FAIL] อ่านยอดไม่ได้: ' + escapeHTML(full.substring(0,80)), 'e');
-                    return;
-                }
-
-                if (!src) {
-                    src = 'fallback';
-                    pbLog('[WARN] ไม่รู้แหล่งที่มา → ใช้ fallback', 'w');
-                }
-
-                pbInject(amt, src, title, body);
+                // ตรวจ keyword / ยอด / แหล่งที่มา / กันซ้ำข้ามช่องทาง ใช้ร่วมกับ Firebase + วงเน็ต (ส่วนที่ 12)
+                ingestMoneyEvent({
+                    channel: 'pb',
+                    id: push.iden || null,
+                    eventId: '',
+                    title: title,
+                    body: body,
+                    app: appName,
+                    ts: push.created ? Math.round(push.created * 1000) : Date.now()
+                });
             } finally {
                 // [BACKFILL] ประทับ iden ว่า "ประมวลผลแล้ว" ไม่ว่าผลจะเป็นบันทึกสำเร็จหรือ skip/fail
                 // ก็ตาม กัน poll รอบถัดไปดึง push เดิมมาพยายามซ้ำอีกไม่รู้จบ
@@ -1529,6 +1522,35 @@
             renderTable();
         }
 
+        // ------------------------------------------
+        // กันซ้ำระดับ 2 — Pushbullet เทียบกับ Firebase/วงเน็ต (ไม่มี eventId ร่วมกัน)
+        // signature = ยอด + ข้อความ (ตัดช่องว่างซ้ำ, ตัวเล็ก) และเวลาแจ้งเตือนห่างกันไม่เกิน 3 นาที
+        // record หนึ่ง "จับคู่ได้ 1 ครั้งต่อช่องทาง" → โอนจริง 2 ครั้ง ยอด/ข้อความเหมือนกัน ยังได้ครบ 2 รายการ
+        // (เทียบเวลาของแจ้งเตือนเอง ไม่ใช่เวลาที่คอมได้รับ — Firebase อาจดึงของค้างมาทีหลังหลายนาที)
+        // ------------------------------------------
+        var INBOX_TWIN_WINDOW_MS = 3 * 60 * 1000;
+        function normalizeInboxText(s) {
+            return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        }
+        function findCrossChannelTwin(ch, sig, evTs) {
+            for (var i = records.length - 1; i >= 0; i--) {
+                var r = records[i];
+                if (!r.sig || r.sig !== sig) continue;
+                if (Math.abs((r.evTs || r.ts || 0) - evTs) > INBOX_TWIN_WINDOW_MS) continue;
+                var chans = r.channels || (r.via ? [r.via] : []);
+                if (chans.indexOf(ch) > -1) continue; // เคยจับคู่กับช่องทางนี้แล้ว
+                if (ch === 'pb') {
+                    if (chans.indexOf('fb') < 0 && chans.indexOf('lan') < 0) continue;
+                } else {
+                    // Firebase/วงเน็ต จับคู่ได้เฉพาะรายการจาก Pushbullet ที่ยังไม่มี eventId
+                    // (eventId ต่างกัน = macro คนละครั้ง = เงินเข้าคนละรายการ)
+                    if (chans.indexOf('pb') < 0 || r.eventId) continue;
+                }
+                return r;
+            }
+            return null;
+        }
+
         // ==========================================
         // ingestMoneyEvent — จุดรวมทุกช่องทาง: { channel, id, eventId, title, body, app, ts }
         // ตรวจ keyword → extractMoney → detectSource (โค้ดเดิม) → กันซ้ำ → pbInject
@@ -1573,7 +1595,24 @@
                 var src = detectSource(full);
                 if (!src) { src = 'fallback'; pbLog(icon + ' [WARN] ไม่รู้แหล่งที่มา → ใช้ fallback', 'w'); }
 
-                var rec = pbInject(amt, src, title, body, { channel: ch, eventId: evt.eventId || '' });
+                // ระดับ 2: Pushbullet ไม่มี eventId ร่วมกับ macro → เทียบ ยอด + ข้อความ ภายใน 3 นาที
+                var sig = amt + '_' + normalizeInboxText(title + ' ' + body);
+                var evTs = Number(evt.ts) || Date.now();
+                var twin = findCrossChannelTwin(ch, sig, evTs);
+                if (twin) {
+                    if (ch !== 'pb' && evt.eventId) {
+                        twin.eventId = evt.eventId;
+                        _inboxSeen[evt.eventId].recordTs = twin.ts;
+                        saveInboxSeen();
+                    }
+                    addRecordChannel(twin, ch);
+                    pbLog(icon + ' 🔁 ตรงกับรายการ +' + amt.toLocaleString('en-US') + ' ฿ ที่รับจาก ' +
+                          escapeHTML(twin.channels.filter(function(c) { return c !== ch; }).map(function(c) { return CHANNEL_NAMES[c] || c; }).join(' + ')) +
+                          ' แล้ว (ไม่บันทึกซ้ำ)', 'i');
+                    return;
+                }
+
+                var rec = pbInject(amt, src, title, body, { channel: ch, eventId: evt.eventId || '', sig: sig, evTs: evTs });
                 if (rec && evt.eventId) { _inboxSeen[evt.eventId].recordTs = rec.ts; saveInboxSeen(); }
             } finally {
                 // Firebase: ยืนยันว่าประมวลผลแล้ว → main เลื่อน cursor, ครั้งหน้าไม่ดึงซ้ำ
