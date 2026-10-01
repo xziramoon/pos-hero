@@ -1,0 +1,12 @@
+name = "pos-hero-inbox"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[[durable_objects.bindings]]
+name = "INBOX"
+class_name = "Inbox"
+
+# Durable Object แบบ SQLite ใช้ได้ในแผนฟรีของ Cloudflare
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Inbox"]

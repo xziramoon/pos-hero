@@ -1,0 +1,13 @@
+{
+  "name": "pos-hero-inbox",
+  "private": true,
+  "description": "POS Hero money-in inbox on Cloudflare Workers (Firebase RTDB-compatible subset)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test/smoke.js"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
