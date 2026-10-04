@@ -462,22 +462,16 @@
             document.getElementById('reconBank2').value = saved ? saved.bank2 : '';
             document.getElementById('reconPaotang').value = saved ? saved.paotang : '';
             calcRecon();
-            switchReconTab('check');
             document.getElementById('reconModal').style.display = 'flex';
         }
-        // หน้าต่างกระทบยอดแยก 2 แท็บ: 'check' (ตรวจเช็คเงินโอน ใช้ทุกกะ) / 'settings' (ตั้งค่าช่องทาง ตั้งครั้งเดียว)
-        // เปิดหน้าต่างเมื่อไหร่ก็เริ่มที่แท็บตรวจเช็คเสมอ — การเติมยอดเข้าช่องกระทบยอดอัตโนมัติทำงานได้ทั้งสองแท็บ
-        function switchReconTab(name) {
-            ['check', 'settings'].forEach(function(t) {
-                var panel = document.getElementById('reconPanel_' + t);
-                var btn = document.getElementById('reconTabBtn_' + t);
-                if (panel) panel.style.display = (t === name) ? '' : 'none';
-                if (btn) btn.classList.toggle('active', t === name);
-            });
-            // ตัวที่เลื่อนจริงคือ overlay (#reconModal) ไม่ใช่ .modal-content — กลับขึ้นบนสุดทุกครั้งที่สลับแท็บ
-            var overlay = document.getElementById('reconModal');
-            if (overlay) overlay.scrollTop = 0;
+        // ⚙️ ตั้งค่า แยกเป็นหน้าต่างของตัวเอง (ปุ่มที่แผงด้านล่าง) — การเติมยอดเข้าช่องกระทบยอดอัตโนมัติ
+        // ยังทำเฉพาะตอนหน้าต่าง 🔍 ตรวจเช็คเงินโอน (#reconModal) เปิดอยู่เหมือนเดิม
+        function openSettingsModal() {
+            var m = document.getElementById('settingsModal');
+            m.style.display = 'flex';
+            m.scrollTop = 0;
         }
+        function closeSettingsModal() { document.getElementById('settingsModal').style.display = 'none'; }
         function closeReconModal() { document.getElementById('reconModal').style.display = 'none'; }
 
         function calcRecon() {
@@ -756,7 +750,7 @@
                 fallback: document.getElementById('pbMapFallback') ? document.getElementById('pbMapFallback').value : 'transfer',
                 reconBank:     document.getElementById('pbReconBank')     ? document.getElementById('pbReconBank').checked     : true,
                 reconPaotang:  document.getElementById('pbReconPaotang')  ? document.getElementById('pbReconPaotang').checked  : false,
-                reconMaemanee: document.getElementById('pbReconMaemanee') ? document.getElementById('pbReconMaemanee').checked : false,
+                reconMaemanee: document.getElementById('pbReconMaemanee') ? document.getElementById('pbReconMaemanee').checked : true,
                 reconFallback: document.getElementById('pbReconFallback') ? document.getElementById('pbReconFallback').checked : true
             };
             localStorage.setItem('pbConfig', JSON.stringify(cfg));
@@ -779,7 +773,7 @@
 
         function getPbConfig() {
             try { const saved = JSON.parse(localStorage.getItem('pbConfig')); if (saved) return saved; } catch(e) {}
-            return { bank: 'transfer', paotang: 'thaiplus', maemanee: 'transfer', fallback: 'transfer', reconBank: true, reconPaotang: false, reconMaemanee: false, reconFallback: true };
+            return { bank: 'transfer', paotang: 'thaiplus', maemanee: 'transfer', fallback: 'transfer', reconBank: true, reconPaotang: false, reconMaemanee: true, reconFallback: true };
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -807,7 +801,7 @@
         };
         // ป้ายชื่ออ่านง่าย สำหรับกลุ่มที่ detectSource() (ใช้ร่วม Pushbullet/Firebase/วงเน็ต) คืนมา —
         // ('bank1'/'bank2'/ฯลฯ) — ใช้แค่แสดงผลใน log/โหมดทดสอบ (ข้อ 16) ไม่กระทบการจัดกลุ่มจริง
-        var GROUP_LABELS = { bank1: 'บัญชีที่ 1', bank2: 'บัญชีที่ 2', paotang: 'เป๋าตัง/ถุงเงิน', maemanee: 'แม่มณี', fallback: 'ไม่ทราบแหล่งที่มา' };
+        var GROUP_LABELS = { bank1: 'ธนาคาร', bank2: 'ธนาคาร', paotang: 'เป๋าตัง/ถุงเงิน', maemanee: 'แม่มณี', fallback: 'ไม่ทราบแหล่งที่มา' };
 
         // ==========================================
         // injectPaymentEvent — บันทึกยอดเข้าตาราง POS + autofill ช่องกระทบยอด
@@ -866,9 +860,8 @@
             if (doRecon && document.getElementById('reconModal') && document.getElementById('reconModal').style.display === 'flex') {
                 var fieldId = null;
                 if (group === 'paotang') fieldId = 'reconPaotang';
-                else if (group === 'bank1') fieldId = 'reconBank1';
-                else if (group === 'bank2') fieldId = 'reconBank2';
-                else if (group === 'maemanee') fieldId = 'reconBank1';
+                // ช่อง 1 = ธนาคารกรุงเทพ (เงินเข้าธนาคารอื่นก็ลงช่องนี้), ช่อง 2 = ธนาคารของแม่มณี
+                else if (group === 'maemanee') fieldId = 'reconBank2';
                 else fieldId = 'reconBank1';
 
                 var el = document.getElementById(fieldId);
@@ -1347,9 +1340,8 @@
             if (doRecon && document.getElementById('reconModal') && document.getElementById('reconModal').style.display === 'flex') {
                 var fieldId = null;
                 if (srcType === 'paotang') fieldId = 'reconPaotang';
-                else if (srcType === 'bank1') fieldId = 'reconBank1';
-                else if (srcType === 'bank2') fieldId = 'reconBank2';
-                else if (srcType === 'maemanee') fieldId = 'reconBank1';
+                // ช่อง 1 = ธนาคารกรุงเทพ (เงินเข้าธนาคารอื่นก็ลงช่องนี้), ช่อง 2 = ธนาคารของแม่มณี
+                else if (srcType === 'maemanee') fieldId = 'reconBank2';
                 else fieldId = 'reconBank1';
 
                 var el = document.getElementById(fieldId);
