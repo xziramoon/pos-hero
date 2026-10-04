@@ -462,7 +462,21 @@
             document.getElementById('reconBank2').value = saved ? saved.bank2 : '';
             document.getElementById('reconPaotang').value = saved ? saved.paotang : '';
             calcRecon();
+            switchReconTab('check');
             document.getElementById('reconModal').style.display = 'flex';
+        }
+        // หน้าต่างกระทบยอดแยก 2 แท็บ: 'check' (ตรวจเช็คเงินโอน ใช้ทุกกะ) / 'settings' (ตั้งค่าช่องทาง ตั้งครั้งเดียว)
+        // เปิดหน้าต่างเมื่อไหร่ก็เริ่มที่แท็บตรวจเช็คเสมอ — การเติมยอดเข้าช่องกระทบยอดอัตโนมัติทำงานได้ทั้งสองแท็บ
+        function switchReconTab(name) {
+            ['check', 'settings'].forEach(function(t) {
+                var panel = document.getElementById('reconPanel_' + t);
+                var btn = document.getElementById('reconTabBtn_' + t);
+                if (panel) panel.style.display = (t === name) ? '' : 'none';
+                if (btn) btn.classList.toggle('active', t === name);
+            });
+            // ตัวที่เลื่อนจริงคือ overlay (#reconModal) ไม่ใช่ .modal-content — กลับขึ้นบนสุดทุกครั้งที่สลับแท็บ
+            var overlay = document.getElementById('reconModal');
+            if (overlay) overlay.scrollTop = 0;
         }
         function closeReconModal() { document.getElementById('reconModal').style.display = 'none'; }
 

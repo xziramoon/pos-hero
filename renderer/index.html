@@ -148,155 +148,175 @@
                 <h3 style="color: var(--cyan-recon);">📱 กระทบยอดรับดิจิทัล</h3>
                 <button class="close-btn" onclick="closeReconModal()">×</button>
             </div>
-            <div style="font-size: 12px; color: #666; text-align: center; margin-bottom: 10px;">นำยอดโอน/สแกน เทียบกับ ยอดที่เข้าบัญชีธนาคาร/เป๋าตังจริง</div>
-
-            <div class="drawer-summary" style="margin-top:0;">
-                <div style="font-weight:700; color:var(--dark); margin-bottom:10px; border-bottom:1px solid #ccc; padding-bottom:5px;">💻 ยอดรับโอนจากระบบ POS (ที่ควรมี)</div>
-                <div class="ds-row">
-                    <span>POS เครื่องที่ 1 (เงินโอน):</span>
-                    <input type="number" id="reconPos1Transfer" class="num-input" style="width:100px; text-align:right;" oninput="calcRecon()">
-                </div>
-                <div class="ds-row">
-                    <span>POS เครื่องที่ 2 (เงินโอน):</span>
-                    <input type="number" id="reconPos2" class="num-input" style="width:100px; text-align:right;" oninput="calcRecon()" placeholder="0">
-                </div>
-                <div class="ds-row" style="color:var(--cyan-recon); font-weight:700; margin-top:5px;">
-                    <span>รวมยอด POS ทั้งหมด:</span> <span id="reconPosTotal">0</span>
-                </div>
+            <!-- แยกเป็น 2 แท็บ: ตรวจเช็คเงินโอน (ใช้ทุกกะ) / ตั้งค่า (ตั้งครั้งเดียว) — switchReconTab() ใน app.js -->
+            <div class="recon-tabs">
+                <button type="button" class="recon-tab active" id="reconTabBtn_check" onclick="switchReconTab('check')">🔍 ตรวจเช็คเงินโอน</button>
+                <button type="button" class="recon-tab" id="reconTabBtn_settings" onclick="switchReconTab('settings')">⚙️ ตั้งค่า</button>
             </div>
 
-            <div class="drawer-summary recon-green-box" style="margin-top:15px; background: #f0fdf4; border-color: #bbf7d0;">
-                <div style="font-weight:700; color:var(--success); margin-bottom:10px; border-bottom:1px solid #bbf7d0; padding-bottom:5px;">🏦 ยอดในบัญชีธนาคาร / เป๋าตัง (ที่เข้าจริง)</div>
-                <div class="ds-row">
-                    <span>ธนาคาร / บัญชีที่ 1:</span>
-                    <input type="number" id="reconBank1" class="num-input" style="width:100px; text-align:right; border-color:#bbf7d0;" oninput="calcRecon()" placeholder="0">
+            <div class="recon-panel" id="reconPanel_check">
+                <div style="font-size: 12px; color: #666; text-align: center; margin-bottom: 10px;">นำยอดโอน/สแกน เทียบกับ ยอดที่เข้าบัญชีธนาคาร/เป๋าตังจริง</div>
+
+                <div class="drawer-summary" style="margin-top:0;">
+                    <div style="font-weight:700; color:var(--dark); margin-bottom:10px; border-bottom:1px solid #ccc; padding-bottom:5px;">💻 ยอดรับโอนจากระบบ POS (ที่ควรมี)</div>
+                    <div class="ds-row">
+                        <span>POS เครื่องที่ 1 (เงินโอน):</span>
+                        <input type="number" id="reconPos1Transfer" class="num-input" style="width:100px; text-align:right;" oninput="calcRecon()">
+                    </div>
+                    <div class="ds-row">
+                        <span>POS เครื่องที่ 2 (เงินโอน):</span>
+                        <input type="number" id="reconPos2" class="num-input" style="width:100px; text-align:right;" oninput="calcRecon()" placeholder="0">
+                    </div>
+                    <div class="ds-row" style="color:var(--cyan-recon); font-weight:700; margin-top:5px;">
+                        <span>รวมยอด POS ทั้งหมด:</span> <span id="reconPosTotal">0</span>
+                    </div>
                 </div>
-                <div class="ds-row">
-                    <span>ธนาคาร / บัญชีที่ 2:</span>
-                    <input type="number" id="reconBank2" class="num-input" style="width:100px; text-align:right; border-color:#bbf7d0;" oninput="calcRecon()" placeholder="0">
+
+                <div class="drawer-summary recon-green-box" style="margin-top:15px; background: #f0fdf4; border-color: #bbf7d0;">
+                    <div style="font-weight:700; color:var(--success); margin-bottom:10px; border-bottom:1px solid #bbf7d0; padding-bottom:5px;">🏦 ยอดในบัญชีธนาคาร / เป๋าตัง (ที่เข้าจริง)</div>
+                    <div class="ds-row">
+                        <span>ธนาคาร / บัญชีที่ 1:</span>
+                        <input type="number" id="reconBank1" class="num-input" style="width:100px; text-align:right; border-color:#bbf7d0;" oninput="calcRecon()" placeholder="0">
+                    </div>
+                    <div class="ds-row">
+                        <span>ธนาคาร / บัญชีที่ 2:</span>
+                        <input type="number" id="reconBank2" class="num-input" style="width:100px; text-align:right; border-color:#bbf7d0;" oninput="calcRecon()" placeholder="0">
+                    </div>
+                    <div class="ds-row">
+                        <span>แอปเป๋าตัง / ถุงเงิน:</span>
+                        <input type="number" id="reconPaotang" class="num-input" style="width:100px; text-align:right; border-color:#bbf7d0;" oninput="calcRecon()" placeholder="0">
+                    </div>
+                    <div class="ds-row" style="color:var(--success); font-weight:700; margin-top:5px;">
+                        <span>รวมยอดแอปทั้งหมด:</span> <span id="reconBankTotal">0</span>
+                    </div>
                 </div>
-                <div class="ds-row">
-                    <span>แอปเป๋าตัง / ถุงเงิน:</span>
-                    <input type="number" id="reconPaotang" class="num-input" style="width:100px; text-align:right; border-color:#bbf7d0;" oninput="calcRecon()" placeholder="0">
+
+                <div class="drawer-summary" style="margin-top:15px; border-width: 2px;">
+                    <div class="ds-total">
+                        <span>ผลการเปรียบเทียบ:</span>
+                    </div>
+                    <div id="reconDiffBox" class="ds-diff status-short" style="margin-top: 10px;">รอป้อนข้อมูล...</div>
                 </div>
-                <div class="ds-row" style="color:var(--success); font-weight:700; margin-top:5px;">
-                    <span>รวมยอดแอปทั้งหมด:</span> <span id="reconBankTotal">0</span>
+
+                <!-- สถานะรับเงินเข้า + log ล่าสุด — ย้ายมาจากกล่องมือถือเดิม (id เดิม ใช้กับ app.js ได้ตามเดิม) -->
+                <div class="pb-box" id="reconStatusBox">
+                    <div style="font-weight:800; color: var(--purple); margin-bottom:4px; font-size:14px;">📡 สถานะรับเงินเข้า</div>
+                    <!-- ไฟแยกรายช่องทาง (ไฟรวมอยู่ที่ titlebar/mini HUD) — app.js updateCombinedLed() -->
+                    <div class="ch-leds">
+                        <span class="ch-led-item"><span class="ch-led" id="chLed_fb"></span>☁️ Firebase</span>
+                        <span class="ch-led-item"><span class="ch-led" id="chLed_lan"></span>📶 วงเน็ต</span>
+                        <span class="ch-led-item"><span class="ch-led" id="chLed_pb"></span>🔗 Pushbullet</span>
+                        <span class="ch-led-item"><span class="ch-led" id="chLed_app"></span>📱 POS Relay</span>
+                    </div>
+                    <div class="inbox-note">รายการเงินเข้าและการทำงานล่าสุด (ตั้งค่าช่องทางได้ที่แท็บ ⚙️ ตั้งค่า)</div>
+                    <div id="pbLog"><div class="pb-i">รอการเชื่อมต่อ...</div></div>
                 </div>
+
+                <button id="btnReconSubmit" class="btn-action" style="background: var(--cyan-recon);" onclick="executePrintRecon()" disabled>🖨️ พิมพ์ใบกระทบยอด</button>
             </div>
 
-            <div class="drawer-summary" style="margin-top:15px; border-width: 2px;">
-                <div class="ds-total">
-                    <span>ผลการเปรียบเทียบ:</span>
-                </div>
-                <div id="reconDiffBox" class="ds-diff status-short" style="margin-top: 10px;">รอป้อนข้อมูล...</div>
-            </div>
+            <div class="recon-panel" id="reconPanel_settings" style="display:none;">
+                <!-- 📥 ช่องทางรับเงินเข้า — Firebase (หลัก) / วงเน็ตร้าน UDP (สำรอง) / Pushbullet (เดิม)
+                     ค่าเก็บใน localStorage 'inboxConfig' แล้วส่งให้ main.js — ดู app.js ส่วนที่ 12 -->
+                <div class="pb-box" id="inboxBox">
+                    <div style="font-weight:800; color: var(--purple); margin-bottom:4px; font-size:14px;">📥 ช่องทางรับเงินเข้า</div>
+                    <div class="inbox-note">มือถือดักจับ (MacroDroid) ส่งแจ้งเตือนมา 2 ทางพร้อมกัน — เน็ตร้านดับแล้วคอมย้ายไปฮอตสปอตก็ยังไม่พลาดยอด</div>
 
+                    <div class="inbox-sub"><span>☁️ Firebase (ช่องทางหลัก)</span>
+                        <label class="inbox-switch"><input type="checkbox" id="inboxFbEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
+                    <input type="text" id="inboxDbUrl" class="pb-token" placeholder="Database URL เช่น https://xxxx-default-rtdb.asia-southeast1.firebasedatabase.app" onchange="saveInboxSettings()">
+                    <div class="inbox-field-err" id="inboxFbUrlErr"></div>
+                    <div class="inbox-row">
+                        <input type="text" id="inboxKey" class="pb-token" placeholder="Inbox Key (สุ่มยาว 32 ตัวขึ้นไป)" onchange="saveInboxSettings()" spellcheck="false">
+                        <button class="pb-btn" style="background:#7c3aed;" title="สุ่ม Inbox Key ใหม่" onclick="genInboxKey()">🎲</button>
+                        <button class="pb-btn" style="background:#475569;" title="คัดลอก" onclick="copyInboxText(document.getElementById('inboxKey').value, this)">📋</button>
+                    </div>
+                    <div class="inbox-field-err" id="inboxFbKeyErr"></div>
+                    <!-- [ข้อ 11] สถานะของกล่องนี้เอง (ไม่ต้องเดาจากไฟ titlebar หรือไล่ดู log) -->
+                    <div class="inbox-status" id="inboxFbStatusLine"></div>
 
-            <!-- มือถือดักแจ้งเตือน (LAN Relay) — แทนที่ Pushbullet
-                 [ข้อ 14] ห่อด้วย <details> พับเก็บโดยปริยาย เพราะร้านส่วนใหญ่ใช้แค่ "📥 ช่องทางรับเงินเข้า"
-                 ด้านล่าง (Firebase/วงเน็ต) — กล่องนี้เป็นระบบเดิม/ทางเลือกเสริม ไม่ใช่ทางหลัก
-                 (app.js เปิดกล่องนี้ให้อัตโนมัติเมื่อ POS Relay หรือ Pushbullet เชื่อมต่อได้จริง/เจอปัญหา
-                 จริง — ดู setPbStatus/setPbWsStatus) -->
-            <details class="pb-box" id="legacyRelayBox">
-                <summary style="cursor:pointer; font-weight:800; color: var(--purple); font-size:14px; list-style:none;">
-                    📱 มือถือดักแจ้งเตือน (ระบบเสริม/เดิม) <span style="font-weight:400; font-size:11px; color:var(--hero-text-faint);">— แตะเพื่อดู/ซ่อน</span>
-                </summary>
-                <div style="font-size:11px; color:#666; margin:8px 0;">
-                    รองรับ: SCB, K PLUS, Krungsri, Bangkok Bank, TrueMoney, เป๋าตัง, ถุงเงิน
+                    <div class="inbox-sub"><span>📶 วงเน็ตร้าน (สำรอง ไม่ต้องมีเน็ต)</span>
+                        <label class="inbox-switch"><input type="checkbox" id="inboxLanEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
+                    <div class="inbox-row">
+                        <span style="font-size:12px; color:var(--hero-text-dim);">พอร์ต UDP</span>
+                        <input type="number" id="inboxLanPort" class="pb-token" style="max-width:90px;" min="1024" max="65535" value="47800" onchange="saveInboxSettings()">
+                        <button class="pb-btn" style="background:#b45309;" onclick="addLanFirewallRule()">🛡️ อนุญาตไฟร์วอลล์</button>
+                    </div>
+                    <div class="inbox-note">IP คอมตอนนี้: <b id="inboxLanIps">-</b></div>
+                    <div class="inbox-note">ไฟร์วอลล์: <span id="inboxFwStatus">กำลังตรวจ...</span></div>
+                    <div class="inbox-status" id="inboxLanStatusLine"></div>
+
+                    <div class="inbox-sub"><span>🔗 Pushbullet (ช่องทางเดิม)</span>
+                        <label class="inbox-switch"><input type="checkbox" id="inboxPbEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
+                    <div class="inbox-status" id="inboxPbStatusLine"></div>
+
+                    <div class="pb-btns" style="margin-top:10px;">
+                        <button class="pb-btn" style="background: var(--purple);" onclick="openMacroInfoModal()">📱 ข้อมูลสำหรับตั้ง MacroDroid</button>
+                        <button class="pb-btn" id="btnInboxTest" style="background:#0f766e;" onclick="armInboxTestMode()">🧪 โหมดทดสอบ</button>
+                    </div>
+                    <!-- [ข้อ 10] ผลโหมดทดสอบต้องเห็นชิดปุ่มเลย ไม่ใช่ต้องเลื่อนไปดู log ด้านบน -->
+                    <div class="inbox-note" id="inboxTestResult" style="min-height:14px; margin-top:6px;"></div>
                 </div>
-                <!-- ไฟแยกรายช่องทาง (ไฟรวมอยู่ที่ titlebar/mini HUD) — app.js updateCombinedLed() -->
-                <div class="ch-leds">
-                    <span class="ch-led-item"><span class="ch-led" id="chLed_fb"></span>☁️ Firebase</span>
-                    <span class="ch-led-item"><span class="ch-led" id="chLed_lan"></span>📶 วงเน็ต</span>
-                    <span class="ch-led-item"><span class="ch-led" id="chLed_pb"></span>🔗 Pushbullet</span>
-                    <span class="ch-led-item"><span class="ch-led" id="chLed_app"></span>📱 POS Relay</span>
+
+                <!-- การบันทึกอัตโนมัติ — แหล่งที่มา → ประเภท POS / ใส่ช่องกระทบยอด (savePbConfig) -->
+                <div class="pb-box" id="autoRecordBox">
+                    <div style="font-weight:800; color: var(--purple); margin-bottom:4px; font-size:14px;">🧾 การบันทึกอัตโนมัติ</div>
+                    <div style="display:flex; align-items:center; gap:6px; margin:8px 0; font-size:12px; color:var(--hero-text);">
+                        <input type="checkbox" id="pbToTable" checked style="cursor:pointer;">
+                        <label for="pbToTable" style="cursor:pointer;">✅ บันทึกลงตาราง POS อัตโนมัติ</label>
+                    </div>
+                    <div style="margin-top:6px;">
+                        <div style="font-weight:700; font-size:12px; color:var(--purple); margin-bottom:8px;">⚙️ ปรับแต่งการบันทึกอัตโนมัติ</div>
+                        <table style="width:100%; font-size:12px; border-collapse:collapse;">
+                            <thead><tr style="color:#666;"><th style="text-align:left; padding:4px;">แหล่งที่มา</th><th style="padding:4px;">ประเภท POS</th><th style="padding:4px; text-align:center;">กระทบยอด</th></tr></thead>
+                            <tbody>
+                                <tr><td style="padding:4px;">🏦 ธนาคาร</td><td style="padding:4px;"><select id="pbMapBank" class="pb-token" style="padding:4px; font-size:12px; width:100%;" onchange="savePbConfig()"><option value="transfer">โอน</option><option value="welfare">บัตรรัฐ</option><option value="thaiplus">ไทยพลัส</option><option value="expense">ค่าใช้จ่าย</option></select></td><td style="text-align:center;"><input type="checkbox" id="pbReconBank" checked onchange="savePbConfig()"></td></tr>
+                                <tr><td style="padding:4px;">🇹🇭 เป๋าตัง</td><td style="padding:4px;"><select id="pbMapPaotang" class="pb-token" style="padding:4px; font-size:12px; width:100%;" onchange="savePbConfig()"><option value="transfer">โอน</option><option value="welfare">บัตรรัฐ</option><option value="thaiplus" selected>ไทยพลัส</option><option value="expense">ค่าใช้จ่าย</option></select></td><td style="text-align:center;"><input type="checkbox" id="pbReconPaotang" onchange="savePbConfig()"></td></tr>
+                                <tr><td style="padding:4px;">💜 Mae Manee</td><td style="padding:4px;"><select id="pbMapMaemanee" class="pb-token" style="padding:4px; font-size:12px; width:100%;" onchange="savePbConfig()"><option value="transfer" selected>โอน</option><option value="welfare">บัตรรัฐ</option><option value="thaiplus">ไทยพลัส</option><option value="expense">ค่าใช้จ่าย</option></select></td><td style="text-align:center;"><input type="checkbox" id="pbReconMaemanee" onchange="savePbConfig()"></td></tr>
+                                <tr><td style="padding:4px;">❓ ไม่รู้แหล่งที่มา</td><td style="padding:4px;"><select id="pbMapFallback" class="pb-token" style="padding:4px; font-size:12px; width:100%;" onchange="savePbConfig()"><option value="transfer" selected>โอน</option><option value="welfare">บัตรรัฐ</option><option value="thaiplus">ไทยพลัส</option><option value="expense">ค่าใช้จ่าย</option></select></td><td style="text-align:center;"><input type="checkbox" id="pbReconFallback" checked onchange="savePbConfig()"></td></tr>
+                            </tbody>
+                        </table>
+                        <div style="font-size:10px; color:#888; margin-top:4px;">* กระทบยอด = ใส่ยอดเข้าช่องกระทบยอดโอนด้วย (แยกบัญชี 1/2/เป๋าตังตามแหล่งที่มา)</div>
+                    </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
-                    <span id="pbStatus" class="pb-status">⏸️ รอมือถือเชื่อมต่อครั้งแรก</span>
-                </div>
-                <div class="pb-btns">
-                    <button class="pb-btn" style="background: var(--purple);" onclick="showRelayInfo()">📶 ดูข้อมูลเชื่อมต่อ (IP/Token)</button>
-                </div>
-                <div style="margin-top:10px; border-top:1px solid #e9d5ff; padding-top:10px;">
-                    <div style="font-weight:700; font-size:12px; color:var(--purple); margin-bottom:6px;">🔗 Pushbullet (ช่องทางเดิม)</div>
-                    <input type="password" id="pbToken" class="pb-token" placeholder="ใส่ Pushbullet Access Token (ขึ้นต้น o.)..." onchange="localStorage.setItem('pbToken',this.value)">
+
+                <!-- มือถือดักแจ้งเตือน (LAN Relay) — แทนที่ Pushbullet
+                     [ข้อ 14] ห่อด้วย <details> พับเก็บโดยปริยาย เพราะร้านส่วนใหญ่ใช้แค่ "📥 ช่องทางรับเงินเข้า"
+                     ด้านล่าง (Firebase/วงเน็ต) — กล่องนี้เป็นระบบเดิม/ทางเลือกเสริม ไม่ใช่ทางหลัก
+                     (app.js เปิดกล่องนี้ให้อัตโนมัติเมื่อ POS Relay หรือ Pushbullet เชื่อมต่อได้จริง/เจอปัญหา
+                     จริง — ดู setPbStatus/setPbWsStatus) -->
+                <details class="pb-box" id="legacyRelayBox">
+                    <summary style="cursor:pointer; font-weight:800; color: var(--purple); font-size:14px; list-style:none;">
+                        📱 มือถือดักแจ้งเตือน (ระบบเสริม/เดิม) <span style="font-weight:400; font-size:11px; color:var(--hero-text-faint);">— แตะเพื่อดู/ซ่อน</span>
+                    </summary>
+                    <div style="font-size:11px; color:#666; margin:8px 0;">
+                        รองรับ: SCB, K PLUS, Krungsri, Bangkok Bank, TrueMoney, เป๋าตัง, ถุงเงิน
+                    </div>
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
-                        <span id="pbWsStatus" class="pb-status">⏸️ ยังไม่เชื่อมต่อ</span>
+                        <span id="pbStatus" class="pb-status">⏸️ รอมือถือเชื่อมต่อครั้งแรก</span>
                     </div>
                     <div class="pb-btns">
-                        <button class="pb-btn" style="background: var(--purple);" onclick="connectPushbullet()">🟢 เชื่อมต่อ</button>
-                        <button class="pb-btn" style="background: #64748b;" onclick="disconnectPushbullet()">🔴 ตัดการเชื่อมต่อ</button>
+                        <button class="pb-btn" style="background: var(--purple);" onclick="showRelayInfo()">📶 ดูข้อมูลเชื่อมต่อ (IP/Token)</button>
                     </div>
-                </div>
-                <div id="pbLog"><div class="pb-i">รอการเชื่อมต่อ...</div></div>
-                <div style="display:flex; align-items:center; gap:6px; margin:8px 0; font-size:12px; color:#444;">
-                    <input type="checkbox" id="pbToTable" checked style="cursor:pointer;">
-                    <label for="pbToTable" style="cursor:pointer;">✅ บันทึกลงตาราง POS อัตโนมัติ</label>
-                </div>
-                <div style="margin-top:10px; border-top:1px solid #e9d5ff; padding-top:10px;">
-                    <div style="font-weight:700; font-size:12px; color:var(--purple); margin-bottom:8px;">⚙️ ปรับแต่งการบันทึกอัตโนมัติ</div>
-                    <table style="width:100%; font-size:12px; border-collapse:collapse;">
-                        <thead><tr style="color:#666;"><th style="text-align:left; padding:4px;">แหล่งที่มา</th><th style="padding:4px;">ประเภท POS</th><th style="padding:4px; text-align:center;">กระทบยอด</th></tr></thead>
-                        <tbody>
-                            <tr><td style="padding:4px;">🏦 ธนาคาร</td><td style="padding:4px;"><select id="pbMapBank" class="pb-token" style="padding:4px; font-size:12px; width:100%;" onchange="savePbConfig()"><option value="transfer">โอน</option><option value="welfare">บัตรรัฐ</option><option value="thaiplus">ไทยพลัส</option><option value="expense">ค่าใช้จ่าย</option></select></td><td style="text-align:center;"><input type="checkbox" id="pbReconBank" checked onchange="savePbConfig()"></td></tr>
-                            <tr><td style="padding:4px;">🇹🇭 เป๋าตัง</td><td style="padding:4px;"><select id="pbMapPaotang" class="pb-token" style="padding:4px; font-size:12px; width:100%;" onchange="savePbConfig()"><option value="transfer">โอน</option><option value="welfare">บัตรรัฐ</option><option value="thaiplus" selected>ไทยพลัส</option><option value="expense">ค่าใช้จ่าย</option></select></td><td style="text-align:center;"><input type="checkbox" id="pbReconPaotang" onchange="savePbConfig()"></td></tr>
-                            <tr><td style="padding:4px;">💜 Mae Manee</td><td style="padding:4px;"><select id="pbMapMaemanee" class="pb-token" style="padding:4px; font-size:12px; width:100%;" onchange="savePbConfig()"><option value="transfer" selected>โอน</option><option value="welfare">บัตรรัฐ</option><option value="thaiplus">ไทยพลัส</option><option value="expense">ค่าใช้จ่าย</option></select></td><td style="text-align:center;"><input type="checkbox" id="pbReconMaemanee" onchange="savePbConfig()"></td></tr>
-                            <tr><td style="padding:4px;">❓ ไม่รู้แหล่งที่มา</td><td style="padding:4px;"><select id="pbMapFallback" class="pb-token" style="padding:4px; font-size:12px; width:100%;" onchange="savePbConfig()"><option value="transfer" selected>โอน</option><option value="welfare">บัตรรัฐ</option><option value="thaiplus">ไทยพลัส</option><option value="expense">ค่าใช้จ่าย</option></select></td><td style="text-align:center;"><input type="checkbox" id="pbReconFallback" checked onchange="savePbConfig()"></td></tr>
-                        </tbody>
-                    </table>
-                    <div style="font-size:10px; color:#888; margin-top:4px;">* กระทบยอด = ใส่ยอดเข้าช่องกระทบยอดโอนด้วย (แยกบัญชี 1/2/เป๋าตังตามแหล่งที่มา)</div>
-                </div>
-                <div class="hint-box" style="margin-top:8px; font-size:11px;">
-                    💡 วิธีใช้: ติดตั้งแอป "POS Relay" บนมือถือ (android-app) แล้วกด "📶 ดูข้อมูลเชื่อมต่อ" ด้านบนเพื่อเอา IP/Token ไปตั้งค่าในแอปมือถือ
-                </div>
-                <div class="hint-box" style="margin-top:8px; font-size:11px; border-left-color: var(--danger);">
-                    ⚠️ กันพลาดยอด: มือถือต้องเปิดแอป "POS Relay" ค้างไว้ + <b>ปิด "การจัดการแบตเตอรี่ / จำกัดพื้นหลัง"</b> (Battery optimization) สำหรับแอปนั้นด้วย ไม่งั้น Android จะฆ่าแอปทิ้งเงียบๆ เมื่อไม่ได้ใช้นาน ทำให้แจ้งเตือนธนาคารไม่ถูกส่งมาที่เครื่องนี้เลย
-                </div>
-            </details>
-
-            <!-- 📥 ช่องทางรับเงินเข้า — Firebase (หลัก) / วงเน็ตร้าน UDP (สำรอง) / Pushbullet (เดิม)
-                 ค่าเก็บใน localStorage 'inboxConfig' แล้วส่งให้ main.js — ดู app.js ส่วนที่ 12 -->
-            <div class="pb-box" id="inboxBox">
-                <div style="font-weight:800; color: var(--purple); margin-bottom:4px; font-size:14px;">📥 ช่องทางรับเงินเข้า</div>
-                <div class="inbox-note">มือถือดักจับ (MacroDroid) ส่งแจ้งเตือนมา 2 ทางพร้อมกัน — เน็ตร้านดับแล้วคอมย้ายไปฮอตสปอตก็ยังไม่พลาดยอด</div>
-
-                <div class="inbox-sub"><span>☁️ Firebase (ช่องทางหลัก)</span>
-                    <label class="inbox-switch"><input type="checkbox" id="inboxFbEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
-                <input type="text" id="inboxDbUrl" class="pb-token" placeholder="Database URL เช่น https://xxxx-default-rtdb.asia-southeast1.firebasedatabase.app" onchange="saveInboxSettings()">
-                <div class="inbox-field-err" id="inboxFbUrlErr"></div>
-                <div class="inbox-row">
-                    <input type="text" id="inboxKey" class="pb-token" placeholder="Inbox Key (สุ่มยาว 32 ตัวขึ้นไป)" onchange="saveInboxSettings()" spellcheck="false">
-                    <button class="pb-btn" style="background:#7c3aed;" title="สุ่ม Inbox Key ใหม่" onclick="genInboxKey()">🎲</button>
-                    <button class="pb-btn" style="background:#475569;" title="คัดลอก" onclick="copyInboxText(document.getElementById('inboxKey').value, this)">📋</button>
-                </div>
-                <div class="inbox-field-err" id="inboxFbKeyErr"></div>
-                <!-- [ข้อ 11] สถานะของกล่องนี้เอง (ไม่ต้องเดาจากไฟ titlebar หรือไล่ดู log) -->
-                <div class="inbox-status" id="inboxFbStatusLine"></div>
-
-                <div class="inbox-sub"><span>📶 วงเน็ตร้าน (สำรอง ไม่ต้องมีเน็ต)</span>
-                    <label class="inbox-switch"><input type="checkbox" id="inboxLanEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
-                <div class="inbox-row">
-                    <span style="font-size:12px; color:var(--hero-text-dim);">พอร์ต UDP</span>
-                    <input type="number" id="inboxLanPort" class="pb-token" style="max-width:90px;" min="1024" max="65535" value="47800" onchange="saveInboxSettings()">
-                    <button class="pb-btn" style="background:#b45309;" onclick="addLanFirewallRule()">🛡️ อนุญาตไฟร์วอลล์</button>
-                </div>
-                <div class="inbox-note">IP คอมตอนนี้: <b id="inboxLanIps">-</b></div>
-                <div class="inbox-note">ไฟร์วอลล์: <span id="inboxFwStatus">กำลังตรวจ...</span></div>
-                <div class="inbox-status" id="inboxLanStatusLine"></div>
-
-                <div class="inbox-sub"><span>🔗 Pushbullet (ช่องทางเดิม)</span>
-                    <label class="inbox-switch"><input type="checkbox" id="inboxPbEnabled" onchange="saveInboxSettings()"> เปิดใช้</label></div>
-                <div class="inbox-status" id="inboxPbStatusLine"></div>
-
-                <div class="pb-btns" style="margin-top:10px;">
-                    <button class="pb-btn" style="background: var(--purple);" onclick="openMacroInfoModal()">📱 ข้อมูลสำหรับตั้ง MacroDroid</button>
-                    <button class="pb-btn" id="btnInboxTest" style="background:#0f766e;" onclick="armInboxTestMode()">🧪 โหมดทดสอบ</button>
-                </div>
-                <!-- [ข้อ 10] ผลโหมดทดสอบต้องเห็นชิดปุ่มเลย ไม่ใช่ต้องเลื่อนไปดู log ด้านบน -->
-                <div class="inbox-note" id="inboxTestResult" style="min-height:14px; margin-top:6px;"></div>
+                    <div style="margin-top:10px; border-top:1px solid #e9d5ff; padding-top:10px;">
+                        <div style="font-weight:700; font-size:12px; color:var(--purple); margin-bottom:6px;">🔗 Pushbullet (ช่องทางเดิม)</div>
+                        <input type="password" id="pbToken" class="pb-token" placeholder="ใส่ Pushbullet Access Token (ขึ้นต้น o.)..." onchange="localStorage.setItem('pbToken',this.value)">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                            <span id="pbWsStatus" class="pb-status">⏸️ ยังไม่เชื่อมต่อ</span>
+                        </div>
+                        <div class="pb-btns">
+                            <button class="pb-btn" style="background: var(--purple);" onclick="connectPushbullet()">🟢 เชื่อมต่อ</button>
+                            <button class="pb-btn" style="background: #64748b;" onclick="disconnectPushbullet()">🔴 ตัดการเชื่อมต่อ</button>
+                        </div>
+                    </div>
+                    <div class="hint-box" style="margin-top:8px; font-size:11px;">
+                        💡 วิธีใช้: ติดตั้งแอป "POS Relay" บนมือถือ (android-app) แล้วกด "📶 ดูข้อมูลเชื่อมต่อ" ด้านบนเพื่อเอา IP/Token ไปตั้งค่าในแอปมือถือ
+                    </div>
+                    <div class="hint-box" style="margin-top:8px; font-size:11px; border-left-color: var(--danger);">
+                        ⚠️ กันพลาดยอด: มือถือต้องเปิดแอป "POS Relay" ค้างไว้ + <b>ปิด "การจัดการแบตเตอรี่ / จำกัดพื้นหลัง"</b> (Battery optimization) สำหรับแอปนั้นด้วย ไม่งั้น Android จะฆ่าแอปทิ้งเงียบๆ เมื่อไม่ได้ใช้นาน ทำให้แจ้งเตือนธนาคารไม่ถูกส่งมาที่เครื่องนี้เลย
+                    </div>
+                </details>
             </div>
-
-            <button id="btnReconSubmit" class="btn-action" style="background: var(--cyan-recon);" onclick="executePrintRecon()" disabled>🖨️ พิมพ์ใบกระทบยอด</button>
         </div>
     </div>
 

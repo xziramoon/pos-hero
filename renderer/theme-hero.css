@@ -1071,3 +1071,20 @@ body.print-scale, body.print-scale * {
     #legacyRelayBox > summary::before { content: '▸ '; color: var(--hero-text-faint); }
     #legacyRelayBox[open] > summary::before { content: '▾ '; }
 }
+
+/* แท็บในหน้าต่างกระทบยอด: 🔍 ตรวจเช็คเงินโอน / ⚙️ ตั้งค่า — app.js switchReconTab() */
+@media screen {
+    .recon-tabs { display: flex; gap: 6px; margin: 0 0 12px; border-bottom: 2px solid var(--hero-border-dk); }
+    .recon-tab {
+        flex: 1; padding: 9px 6px; border: 1px solid var(--hero-border-dk); border-bottom: none;
+        border-radius: 8px 8px 0 0; background: var(--hero-panel-2); color: var(--hero-text-dim);
+        font-family: 'Sarabun', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer;
+        margin-bottom: -2px;
+    }
+    .recon-tab:hover { filter: brightness(1.15); }
+    .recon-tab.active {
+        background: var(--hero-panel-3); color: var(--hero-gold-bright);
+        border-color: var(--cyan-recon); border-bottom: 2px solid var(--hero-panel-3);
+    }
+    #reconPanel_settings > .pb-box:first-child { margin-top: 0; }
+}
