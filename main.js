@@ -449,15 +449,64 @@ function buildEscPosRaster(bitmapBGRA, widthPx, heightPx) {
   return Buffer.concat(chunks);
 }
 
-ipcMain.handle('print:raw', async (_event, rect) => {
-  if (!mainWindow) return { success: false, reason: 'no window' };
-  if (!rect || !(rect.width > 0) || !(rect.height > 0)) return { success: false, reason: 'invalid capture rect' };
+// ใบเสร็จยาวกว่าหน้าต่าง (เช่น "พิมพ์ (เต็ม)" ที่มีหลายสิบรายการ) จับภาพครั้งเดียวไม่ได้ — capturePage
+// ได้แค่ส่วนที่อยู่ในหน้าต่าง (สูง ~700px) ส่วนที่เลยขอบล่างถูกตัดทิ้ง renderer (hero-chrome.js heroPrint)
+// จึงเลื่อนใบเสร็จขึ้นทีละหน้าจอแล้วส่งมาให้จับทีละช่วง (print:capture-slice) ฝั่งนี้ต่อภาพดิบ (ความละเอียดจริง
+// ของจอ) เป็นแผ่นเดียว แล้วค่อยย่อเป็น 576 จุดครั้งเดียวตอนท้าย — ย่อทีละช่วงจะมีรอยต่อจากการปัดเศษ
+const printJobs = new Map(); // jobId → { slices: [{ bitmap, width, height }], createdAt }
+const PRINT_JOB_TTL_MS = 2 * 60 * 1000;
 
-  let tmpFile;
+ipcMain.handle('print:capture-slice', async (_event, { jobId, rect } = {}) => {
+  if (!mainWindow) return { success: false, reason: 'no window' };
+  if (typeof jobId !== 'string' || !rect || !(rect.width > 0) || !(rect.height > 0)) return { success: false, reason: 'invalid capture rect' };
+  for (const [id, job] of printJobs) if (Date.now() - job.createdAt > PRINT_JOB_TTL_MS) printJobs.delete(id);
   try {
     const captured = await mainWindow.webContents.capturePage({
       x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: rect.width, height: rect.height
     });
+    const size = captured.getSize();
+    const job = printJobs.get(jobId) || { slices: [], createdAt: Date.now() };
+    job.slices.push({ bitmap: captured.toBitmap(), width: size.width, height: size.height });
+    printJobs.set(jobId, job);
+    return { success: true };
+  } catch (err) {
+    return { success: false, reason: err && err.message ? err.message : String(err) };
+  }
+});
+
+function stitchSlices(slices) {
+  const width = Math.min(...slices.map(s => s.width));
+  const height = slices.reduce((h, s) => h + s.height, 0);
+  const out = Buffer.alloc(width * height * 4);
+  let y0 = 0;
+  for (const s of slices) {
+    for (let y = 0; y < s.height; y++) {
+      s.bitmap.copy(out, ((y0 + y) * width) * 4, (y * s.width) * 4, (y * s.width + width) * 4);
+    }
+    y0 += s.height;
+  }
+  return nativeImage.createFromBitmap(out, { width, height });
+}
+
+ipcMain.handle('print:raw', async (_event, arg) => {
+  if (!mainWindow) return { success: false, reason: 'no window' };
+
+  let tmpFile;
+  try {
+    let captured;
+    if (arg && typeof arg.jobId === 'string') {
+      const job = printJobs.get(arg.jobId);
+      printJobs.delete(arg.jobId);
+      if (!job || !job.slices.length) return { success: false, reason: 'ไม่มีภาพใบเสร็จให้พิมพ์' };
+      captured = stitchSlices(job.slices);
+    } else {
+      // แบบเดิม: จับภาพครั้งเดียวจาก rect (ใบสั้นที่อยู่ในหน้าต่างทั้งใบ)
+      const rect = arg;
+      if (!rect || !(rect.width > 0) || !(rect.height > 0)) return { success: false, reason: 'invalid capture rect' };
+      captured = await mainWindow.webContents.capturePage({
+        x: Math.max(0, rect.x), y: Math.max(0, rect.y), width: rect.width, height: rect.height
+      });
+    }
     const resized = captured.resize({ width: RECEIPT_DOT_WIDTH, quality: 'best' });
     const size = resized.getSize();
     const escpos = buildEscPosRaster(resized.toBitmap(), size.width, size.height);

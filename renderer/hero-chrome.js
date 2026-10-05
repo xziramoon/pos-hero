@@ -299,14 +299,21 @@
 
         document.body.classList.add('print-scale');
         var prevCssText = el.style.cssText;
-        el.style.cssText = prevCssText + '; display: block !important; position: fixed !important; ' +
-            'left: 0 !important; top: 0 !important; z-index: 2147483647 !important; background: #fff !important; ' +
-            'width: 72mm !important; max-width: 72mm !important; height: auto !important; max-height: none !important;';
+        function placeAt(topPx) {
+            el.style.cssText = prevCssText + '; display: block !important; position: fixed !important; ' +
+                'left: 0 !important; top: ' + topPx + 'px !important; z-index: 2147483647 !important; background: #fff !important; ' +
+                'width: 72mm !important; max-width: 72mm !important; height: auto !important; max-height: none !important;';
+        }
+        placeAt(0);
 
         function cleanup() {
             el.style.cssText = prevCssText;
             document.body.classList.remove('print-scale');
             if (typeof clearPrintClasses === 'function') clearPrintClasses();
+        }
+        function fail(reason) {
+            cleanup();
+            alert('⚠️ พิมพ์ไม่สำเร็จ: ' + (reason || 'ไม่ทราบสาเหตุ') + '\nตรวจสอบว่าเครื่องพิมพ์เปิดอยู่และเชื่อมต่อดีหรือไม่');
         }
 
         // Two rAFs plus a short fixed delay: rAFs alone guarantee a layout
@@ -316,25 +323,41 @@
         // (titlebar/buttons/filter tabs still visible) with just double-rAF.
         // Printing isn't latency-sensitive, so trade a few ms for reliability
         // rather than chase a tighter but flakier signal.
-        requestAnimationFrame(function () {
-            requestAnimationFrame(function () {
-                setTimeout(function () {
-                    var rect = el.getBoundingClientRect();
-                    var payload = {
-                        x: Math.round(rect.left), y: Math.round(rect.top),
-                        width: Math.round(rect.width), height: Math.round(rect.height)
-                    };
-                    window.heroWindow.rawPrint(payload).then(function (res) {
-                        cleanup();
-                        if (!res || !res.success) {
-                            alert('⚠️ พิมพ์ไม่สำเร็จ: ' + ((res && res.reason) || 'ไม่ทราบสาเหตุ') + '\nตรวจสอบว่าเครื่องพิมพ์เปิดอยู่และเชื่อมต่อดีหรือไม่');
-                        }
-                    }).catch(function (err) {
-                        cleanup();
-                        alert('⚠️ พิมพ์ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
-                    });
-                }, 150);
-            });
+        function afterPaint(fn) {
+            requestAnimationFrame(function () { requestAnimationFrame(function () { setTimeout(fn, 150); }); });
+        }
+
+        // capturePage จับได้แค่ส่วนที่อยู่ในหน้าต่าง — ใบเสร็จยาว (พิมพ์เต็มที่มีหลายสิบรายการ) จึงเลื่อนใบขึ้น
+        // ทีละความสูงหน้าต่าง จับทีละช่วง แล้วให้ main.js ต่อภาพเป็นแผ่นเดียวก่อนส่งเครื่องพิมพ์
+        afterPaint(function () {
+            var rect = el.getBoundingClientRect();
+            var total = Math.ceil(rect.height);
+            var x = Math.round(rect.left), width = Math.round(rect.width);
+            var step = Math.max(1, Math.floor(window.innerHeight));
+            if (!window.heroWindow.printCaptureSlice || total <= step) {
+                // ใบสั้นพอดีหน้าต่าง: จับครั้งเดียวแบบเดิม
+                window.heroWindow.rawPrint({ x: x, y: Math.round(rect.top), width: width, height: total }).then(function (res) {
+                    if (!res || !res.success) fail(res && res.reason); else cleanup();
+                }).catch(function (err) { fail(err && err.message); });
+                return;
+            }
+            var jobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+            var offset = 0;
+            (function next() {
+                var h = Math.min(step, total - offset);
+                window.heroWindow.printCaptureSlice(jobId, { x: x, y: 0, width: width, height: h }).then(function (res) {
+                    if (!res || !res.success) { fail(res && res.reason); return; }
+                    offset += h;
+                    if (offset < total) {
+                        placeAt(-offset);
+                        afterPaint(next);
+                        return;
+                    }
+                    window.heroWindow.rawPrint({ jobId: jobId }).then(function (res2) {
+                        if (!res2 || !res2.success) fail(res2 && res2.reason); else cleanup();
+                    }).catch(function (err) { fail(err && err.message); });
+                }).catch(function (err) { fail(err && err.message); });
+            })();
         });
     };
 

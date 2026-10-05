@@ -362,6 +362,11 @@
         body.print-scale .no-print, body.print-scale .floating-controls, body.print-scale .modal-overlay,
         body.print-scale .filter-container, body.print-scale .undo-toast, body.print-scale .coin-pop { display: none !important; }
 
+        /* "พิมพ์ (เต็ม)": ตารางบนจอเป็นกล่องสูง 320px ที่ต้องเลื่อนดู — กฎ @media print ด้านบนขยายให้ยาวเต็มแล้ว
+           แต่การพิมพ์จริงใช้ภาพหน้าจอ (print-scale) ไม่ใช่ @media print เลยพิมพ์ออกมาแค่ ~10 แถวแรก */
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) .table-wrapper { height: auto !important; max-height: none !important; overflow: visible !important; border: none !important; margin-bottom: 6px; }
+        /* หัวตารางบนจอเป็น sticky — ตอนพิมพ์ใบยาวที่ต้องเลื่อนใบจับภาพทีละช่วง มันจะไปค้างทับแถวตรงรอยต่อ */
+        body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) th { position: static !important; }
         body.print-scale { font-size: calc(16px * var(--print-zoom, 1)); }
         body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) table { font-size: calc(14px * var(--print-zoom, 1)); }
         body.print-scale:not(.printing-exchange):not(.printing-drawer):not(.print-summary-only):not(.printing-recon) td,

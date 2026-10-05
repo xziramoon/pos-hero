@@ -33,5 +33,6 @@ contextBridge.exposeInMainWorld('heroWindow', {
   onModeTransition: (callback) => ipcRenderer.on('mode-transition', (_event, payload) => callback(payload)),
   collapseReady: () => ipcRenderer.send('window:collapse-ready'),
   setBackgroundColor: (hex) => ipcRenderer.send('ui:bg-color', hex),
-  rawPrint: (rect) => ipcRenderer.invoke('print:raw', rect)
+  rawPrint: (rect) => ipcRenderer.invoke('print:raw', rect),
+  printCaptureSlice: (jobId, rect) => ipcRenderer.invoke('print:capture-slice', { jobId, rect })
 });
