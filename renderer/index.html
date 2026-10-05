@@ -321,104 +321,105 @@
             </div>
         </details>
     </div>
-</div>
+    </div>
 
-<!-- [ข้อ 1] MODAL แก้ไขชื่อ/ยอด — แทนที่ prompt() ที่ Electron ไม่รองรับ (renderer/app.js editName/editAmount) -->
-<div id="editModal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 360px;">
-        <div class="modal-header"><h3 id="editModalTitle" style="color: var(--primary);">✏️ แก้ไขรายการ</h3><button class="close-btn" onclick="closeEditModal()">×</button></div>
-        <div class="ds-row" style="flex-direction:column; align-items:stretch; gap:6px;">
-            <label id="editModalLabel" for="editModalInput" style="font-size:13px; color:var(--hero-text-dim);"></label>
-            <input type="text" id="editModalInput" class="input-field" style="box-sizing:border-box;" onkeydown="if(event.key==='Enter'){event.preventDefault(); confirmEditModal();}">
+    <!-- [ข้อ 1] MODAL แก้ไขชื่อ/ยอด — แทนที่ prompt() ที่ Electron ไม่รองรับ (renderer/app.js editName/editAmount) -->
+    <div id="editModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 360px;">
+            <div class="modal-header"><h3 id="editModalTitle" style="color: var(--primary);">✏️ แก้ไขรายการ</h3><button class="close-btn" onclick="closeEditModal()">×</button></div>
+            <div class="ds-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+                <label id="editModalLabel" for="editModalInput" style="font-size:13px; color:var(--hero-text-dim);"></label>
+                <input type="text" id="editModalInput" class="input-field" style="box-sizing:border-box;" onkeydown="if(event.key==='Enter'){event.preventDefault(); confirmEditModal();}">
+            </div>
+            <button class="btn-action" style="background: var(--primary);" onclick="confirmEditModal()">✔ บันทึก</button>
+            <button class="btn-cancel-60" onclick="closeEditModal()">✕ ยกเลิก</button>
         </div>
-        <button class="btn-action" style="background: var(--primary);" onclick="confirmEditModal()">✔ บันทึก</button>
-        <button class="btn-cancel-60" onclick="closeEditModal()">✕ ยกเลิก</button>
     </div>
-</div>
 
-<!-- MODAL นับเงินลิ้นชัก -->
-<div id="drawerModal" class="modal-overlay">
-    <div class="modal-content">
-        <div class="modal-header"><h3 style="color: #ea580c;">🧮 นับเงินในลิ้นชัก</h3><button class="close-btn" onclick="closeDrawerModal()">×</button></div>
-        <table class="table-grid"><thead><tr><th>ชนิดเงิน</th><th>จำนวน</th><th>รวมมูลค่า</th></tr></thead><tbody id="drawerTableBody"></tbody></table>
-        <div class="drawer-summary">
-            <div class="ds-row"><span>เงินทอนตั้งต้น:</span> <span style="font-weight:bold;">9,700</span></div>
-            <div class="ds-row" style="color: var(--success);"><span>บวก ยอดขายเงินสด:</span> <input type="number" id="dsCashSales" class="num-input" style="width: 90px; text-align: right;" placeholder="0" oninput="calcDrawer()"></div>
-            <div class="ds-row" style="color: var(--danger);"><span>หัก ค่าใช้จ่ายระหว่างวัน:</span> <span id="dsExpense">-0</span></div>
-            <div class="ds-divider"></div>
-            <div class="ds-row" style="color: var(--primary);"><span>ยอดที่ควรมี:</span> <span id="dsExpected" style="font-weight:bold;">9,700</span></div>
-            <div class="ds-total"><span>ยอดที่นับได้จริง:</span> <span id="dsActual">0</span></div>
-            <div id="dsDiffBox" class="ds-diff status-short">รอการนับเงิน...</div>
+    <!-- MODAL นับเงินลิ้นชัก -->
+    <div id="drawerModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header"><h3 style="color: #ea580c;">🧮 นับเงินในลิ้นชัก</h3><button class="close-btn" onclick="closeDrawerModal()">×</button></div>
+            <table class="table-grid"><thead><tr><th>ชนิดเงิน</th><th>จำนวน</th><th>รวมมูลค่า</th></tr></thead><tbody id="drawerTableBody"></tbody></table>
+            <div class="drawer-summary">
+                <div class="ds-row"><span>เงินทอนตั้งต้น:</span> <span style="font-weight:bold;">9,700</span></div>
+                <div class="ds-row" style="color: var(--success);"><span>บวก ยอดขายเงินสด:</span> <input type="number" id="dsCashSales" class="num-input" style="width: 90px; text-align: right;" placeholder="0" oninput="calcDrawer()"></div>
+                <div class="ds-row" style="color: var(--danger);"><span>หัก ค่าใช้จ่ายระหว่างวัน:</span> <span id="dsExpense">-0</span></div>
+                <div class="ds-divider"></div>
+                <div class="ds-row" style="color: var(--primary);"><span>ยอดที่ควรมี:</span> <span id="dsExpected" style="font-weight:bold;">9,700</span></div>
+                <div class="ds-total"><span>ยอดที่นับได้จริง:</span> <span id="dsActual">0</span></div>
+                <div id="dsDiffBox" class="ds-diff status-short">รอการนับเงิน...</div>
+            </div>
+            <button id="btnDrSubmit" class="btn-action" style="background: #ea580c;" onclick="executePrintDrawer()" disabled>🖨️ พิมพ์ใบนับเงิน</button>
         </div>
-        <button id="btnDrSubmit" class="btn-action" style="background: #ea580c;" onclick="executePrintDrawer()" disabled>🖨️ พิมพ์ใบนับเงิน</button>
     </div>
-</div>
 
-<!-- MODAL ขอแลกเงิน -->
-<div id="exchangeModal" class="modal-overlay">
-    <div class="modal-content">
-        <div class="modal-header"><h3 style="color: var(--purple);">💵 ขอแลกเงิน</h3><button class="close-btn" onclick="closeExchangeModal()">×</button></div>
-        <table class="table-grid"><thead><tr><th style="width: 50%;">รายการเงินแลก</th><th style="width: 50%;">จำนวนบาท</th></tr></thead><tbody id="exchangeTableBody"></tbody><tfoot><tr><th style="text-align: right;">รวมเงินทั้งหมด:</th><th id="exTotalTxt" style="text-align: right; color: var(--purple); font-size: 18px;">0</th></tr></tfoot></table>
-        <button id="btnExSubmit" class="btn-action" style="background: var(--purple);" onclick="executePrintExchange()" disabled>🖨️ พิมพ์ใบแลกเงิน</button>
-    </div>
-</div>
-
-<!-- MODAL คู่มือการใช้งาน -->
-<div id="manualModal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 500px;"><div class="modal-header"><h3 style="color: var(--primary);">📖 คู่มือการใช้งานระบบ</h3><button class="close-btn" onclick="closeManualModal()">×</button></div><div class="manual-body"><p style="text-align:center; color:#666;">(ระบบทำงานปกติ)</p></div></div>
-</div>
-
-<!-- 🎨 MODAL เลือกธีมสี -->
-<!-- 📱 MODAL ข้อมูลสำหรับตั้ง MacroDroid — เนื้อหาสร้างจาก app.js openMacroInfoModal() -->
-<div id="macroInfoModal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 460px;">
-        <div class="modal-header"><h3 style="color: var(--purple);">📱 ข้อมูลสำหรับตั้ง MacroDroid</h3><button class="close-btn" onclick="closeMacroInfoModal()">×</button></div>
-        <div id="macroInfoBody"></div>
-    </div>
-</div>
-
-<div id="themeModal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 420px;">
-        <div class="modal-header"><h3 style="color: var(--hero-gold-bright);">🎨 เลือกธีมสี</h3><button class="close-btn" onclick="closeThemeModal()">×</button></div>
-        <div class="theme-grid" id="themeGrid">
-            <div class="theme-swatch" data-theme="amber" onclick="selectTheme('amber')">
-                <div class="theme-swatch-preview theme-preview-amber"><span class="theme-swatch-check">✓</span></div>
-                <div class="theme-swatch-label">ทอง-อำพัน</div>
-            </div>
-            <div class="theme-swatch" data-theme="emerald" onclick="selectTheme('emerald')">
-                <div class="theme-swatch-preview theme-preview-emerald"><span class="theme-swatch-check">✓</span></div>
-                <div class="theme-swatch-label">มรกตราตรี</div>
-            </div>
-            <div class="theme-swatch" data-theme="navy" onclick="selectTheme('navy')">
-                <div class="theme-swatch-preview theme-preview-navy"><span class="theme-swatch-check">✓</span></div>
-                <div class="theme-swatch-label">ราชานาวี</div>
-            </div>
-            <div class="theme-swatch" data-theme="ember" onclick="selectTheme('ember')">
-                <div class="theme-swatch-preview theme-preview-ember"><span class="theme-swatch-check">✓</span></div>
-                <div class="theme-swatch-label">เพลิงมังกร</div>
-            </div>
-            <div class="theme-swatch" data-theme="slate" onclick="selectTheme('slate')">
-                <div class="theme-swatch-preview theme-preview-slate"><span class="theme-swatch-check">✓</span></div>
-                <div class="theme-swatch-label">เทาเงาราตรี</div>
-            </div>
-            <div class="theme-swatch" data-theme="pink" onclick="selectTheme('pink')">
-                <div class="theme-swatch-preview theme-preview-pink"><span class="theme-swatch-check">✓</span></div>
-                <div class="theme-swatch-label">ชมพูสดใส</div>
-            </div>
-            <div class="theme-swatch" data-theme="rainbow" onclick="selectTheme('rainbow')">
-                <div class="theme-swatch-preview theme-preview-rainbow"><span class="theme-swatch-check">✓</span></div>
-                <div class="theme-swatch-label">รุ้ง RGB วิบวับ</div>
-            </div>
+    <!-- MODAL ขอแลกเงิน -->
+    <div id="exchangeModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header"><h3 style="color: var(--purple);">💵 ขอแลกเงิน</h3><button class="close-btn" onclick="closeExchangeModal()">×</button></div>
+            <table class="table-grid"><thead><tr><th style="width: 50%;">รายการเงินแลก</th><th style="width: 50%;">จำนวนบาท</th></tr></thead><tbody id="exchangeTableBody"></tbody><tfoot><tr><th style="text-align: right;">รวมเงินทั้งหมด:</th><th id="exTotalTxt" style="text-align: right; color: var(--purple); font-size: 18px;">0</th></tr></tfoot></table>
+            <button id="btnExSubmit" class="btn-action" style="background: var(--purple);" onclick="executePrintExchange()" disabled>🖨️ พิมพ์ใบแลกเงิน</button>
         </div>
+    </div>
 
-        <!-- ขนาดตัวอักษรตอนพิมพ์ใบเสร็จ — ปรับได้เอง ไม่ต้องรอแก้โค้ด
-             (renderer/base.css's --print-zoom, wired up in hero-chrome.js) -->
-        <div class="print-zoom-section">
-            <div class="print-zoom-title">🔠 ขนาดตัวอักษรใบเสร็จ</div>
-            <div class="print-zoom-row">
-                <button class="print-zoom-btn" onclick="adjustPrintZoom(-0.1)">−</button>
-                <span class="print-zoom-value" id="printZoomValue">100%</span>
-                <button class="print-zoom-btn" onclick="adjustPrintZoom(0.1)">+</button>
+    <!-- MODAL คู่มือการใช้งาน -->
+    <div id="manualModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px;"><div class="modal-header"><h3 style="color: var(--primary);">📖 คู่มือการใช้งานระบบ</h3><button class="close-btn" onclick="closeManualModal()">×</button></div><div class="manual-body"><p style="text-align:center; color:#666;">(ระบบทำงานปกติ)</p></div></div>
+    </div>
+
+    <!-- 🎨 MODAL เลือกธีมสี -->
+    <!-- 📱 MODAL ข้อมูลสำหรับตั้ง MacroDroid — เนื้อหาสร้างจาก app.js openMacroInfoModal() -->
+    <div id="macroInfoModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 460px;">
+            <div class="modal-header"><h3 style="color: var(--purple);">📱 ข้อมูลสำหรับตั้ง MacroDroid</h3><button class="close-btn" onclick="closeMacroInfoModal()">×</button></div>
+            <div id="macroInfoBody"></div>
+        </div>
+    </div>
+
+    <div id="themeModal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 420px;">
+            <div class="modal-header"><h3 style="color: var(--hero-gold-bright);">🎨 เลือกธีมสี</h3><button class="close-btn" onclick="closeThemeModal()">×</button></div>
+            <div class="theme-grid" id="themeGrid">
+                <div class="theme-swatch" data-theme="amber" onclick="selectTheme('amber')">
+                    <div class="theme-swatch-preview theme-preview-amber"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">ทอง-อำพัน</div>
+                </div>
+                <div class="theme-swatch" data-theme="emerald" onclick="selectTheme('emerald')">
+                    <div class="theme-swatch-preview theme-preview-emerald"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">มรกตราตรี</div>
+                </div>
+                <div class="theme-swatch" data-theme="navy" onclick="selectTheme('navy')">
+                    <div class="theme-swatch-preview theme-preview-navy"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">ราชานาวี</div>
+                </div>
+                <div class="theme-swatch" data-theme="ember" onclick="selectTheme('ember')">
+                    <div class="theme-swatch-preview theme-preview-ember"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">เพลิงมังกร</div>
+                </div>
+                <div class="theme-swatch" data-theme="slate" onclick="selectTheme('slate')">
+                    <div class="theme-swatch-preview theme-preview-slate"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">เทาเงาราตรี</div>
+                </div>
+                <div class="theme-swatch" data-theme="pink" onclick="selectTheme('pink')">
+                    <div class="theme-swatch-preview theme-preview-pink"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">ชมพูสดใส</div>
+                </div>
+                <div class="theme-swatch" data-theme="rainbow" onclick="selectTheme('rainbow')">
+                    <div class="theme-swatch-preview theme-preview-rainbow"><span class="theme-swatch-check">✓</span></div>
+                    <div class="theme-swatch-label">รุ้ง RGB วิบวับ</div>
+                </div>
+            </div>
+
+            <!-- ขนาดตัวอักษรตอนพิมพ์ใบเสร็จ — ปรับได้เอง ไม่ต้องรอแก้โค้ด
+                 (renderer/base.css's --print-zoom, wired up in hero-chrome.js) -->
+            <div class="print-zoom-section">
+                <div class="print-zoom-title">🔠 ขนาดตัวอักษรใบเสร็จ</div>
+                <div class="print-zoom-row">
+                    <button class="print-zoom-btn" onclick="adjustPrintZoom(-0.1)">−</button>
+                    <span class="print-zoom-value" id="printZoomValue">100%</span>
+                    <button class="print-zoom-btn" onclick="adjustPrintZoom(0.1)">+</button>
+                </div>
             </div>
         </div>
     </div>
